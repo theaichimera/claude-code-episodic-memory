@@ -159,7 +159,7 @@ fi
 
 # Docs-only mode: search only documents
 if [[ "$DOCS_ONLY" == "true" ]]; then
-    query_escaped="${QUERY//\'/\'\'}"
+    query_escaped=$(episodic_sql_escape "$QUERY")
     doc_results=$(sqlite3 -json "$EPISODIC_DB" "
         SELECT d.id, d.project, d.file_path, d.file_name, d.title, d.file_type,
                d.indexed_at, d.file_size, d.extraction_method,
@@ -188,7 +188,7 @@ if [[ -n "$PROJECT" ]]; then
         FROM sessions_fts fts
         JOIN sessions s ON s.id = fts.session_id
         JOIN summaries sum ON sum.session_id = fts.session_id
-        WHERE sessions_fts MATCH '${QUERY//\'/\'\'}' AND s.project = '${PROJECT//\'/\'\'}'
+        WHERE sessions_fts MATCH '$(episodic_sql_escape "$QUERY")' AND s.project = '$(episodic_sql_escape "$PROJECT")'
         ORDER BY rank
         LIMIT $LIMIT;
     ")
@@ -204,7 +204,7 @@ fi
 
 # Also search documents and append results (unless --json mode)
 if [[ "$JSON_OUTPUT" != "true" ]]; then
-    query_escaped="${QUERY//\'/\'\'}"
+    query_escaped=$(episodic_sql_escape "$QUERY")
     doc_results=$(sqlite3 -json "$EPISODIC_DB" "
         SELECT d.id, d.project, d.file_path, d.file_name, d.title, d.file_type,
                d.indexed_at, d.file_size, d.extraction_method,

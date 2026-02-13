@@ -4,6 +4,13 @@
 _EPISODIC_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_EPISODIC_LIB_DIR/config.sh"
 
+# Escape a string for safe interpolation into SQL single-quoted literals.
+# Doubles any single quotes: O'Brien -> O''Brien
+# Usage: escaped=$(episodic_sql_escape "$value")
+episodic_sql_escape() {
+    printf '%s' "${1//\'/\'\'}"
+}
+
 # Initialize the database schema (idempotent)
 episodic_db_init() {
     local db="${1:-$EPISODIC_DB}"
@@ -125,8 +132,7 @@ episodic_db_insert_session() {
     local first_prompt="$6" message_count="$7" user_count="$8" assistant_count="$9"
     local git_branch="${10}" created_at="${11}" modified_at="${12}" duration="${13}"
 
-    # Escape single quotes in first_prompt
-    first_prompt="${first_prompt//\'/\'\'}"
+    first_prompt=$(episodic_sql_escape "$first_prompt")
 
     sqlite3 "$db" <<SQL
 INSERT OR REPLACE INTO sessions (
@@ -165,24 +171,23 @@ episodic_db_insert_summary() {
     artifacts_json=$(echo "$summary_json" | jq -c '.artifacts_created // []')
     insights_json=$(echo "$summary_json" | jq -c '.key_insights // []')
 
-    # Escape single quotes
-    topics_json="${topics_json//\'/\'\'}"
-    decisions_json="${decisions_json//\'/\'\'}"
-    dead_ends_json="${dead_ends_json//\'/\'\'}"
-    artifacts_json="${artifacts_json//\'/\'\'}"
-    insights_json="${insights_json//\'/\'\'}"
-    summary_text="${summary_text//\'/\'\'}"
-    topics="${topics//\'/\'\'}"
-    decisions="${decisions//\'/\'\'}"
-    dead_ends="${dead_ends//\'/\'\'}"
-    key_insights="${key_insights//\'/\'\'}"
+    topics_json=$(episodic_sql_escape "$topics_json")
+    decisions_json=$(episodic_sql_escape "$decisions_json")
+    dead_ends_json=$(episodic_sql_escape "$dead_ends_json")
+    artifacts_json=$(episodic_sql_escape "$artifacts_json")
+    insights_json=$(episodic_sql_escape "$insights_json")
+    summary_text=$(episodic_sql_escape "$summary_text")
+    topics=$(episodic_sql_escape "$topics")
+    decisions=$(episodic_sql_escape "$decisions")
+    dead_ends=$(episodic_sql_escape "$dead_ends")
+    key_insights=$(episodic_sql_escape "$key_insights")
 
     # Get first_prompt and project from sessions table
     local first_prompt project
     first_prompt=$(sqlite3 "$db" "SELECT first_prompt FROM sessions WHERE id='$session_id';")
     project=$(sqlite3 "$db" "SELECT project FROM sessions WHERE id='$session_id';")
-    first_prompt="${first_prompt//\'/\'\'}"
-    project="${project//\'/\'\'}"
+    first_prompt=$(episodic_sql_escape "$first_prompt")
+    project=$(episodic_sql_escape "$project")
 
     sqlite3 "$db" <<SQL
 INSERT OR REPLACE INTO summaries (
@@ -222,8 +227,7 @@ episodic_db_search() {
     local query="$1"
     local limit="${2:-10}"
 
-    # Escape single quotes in query
-    query="${query//\'/\'\'}"
+    query=$(episodic_sql_escape "$query")
 
     sqlite3 -json "$db" <<SQL
 SELECT
@@ -294,8 +298,7 @@ episodic_db_sessions_since_synthesis() {
     local db="$EPISODIC_DB"
     local project="$1"
 
-    # Escape single quotes
-    project="${project//\'/\'\'}"
+    project=$(episodic_sql_escape "$project")
 
     local last_synth
     last_synth=$(sqlite3 "$db" "SELECT MAX(synthesized_at) FROM synthesis_log WHERE project='$project';")
@@ -317,7 +320,7 @@ episodic_db_log_synthesis() {
     local skills_updated="${4:-0}"
     local model="${5:-$EPISODIC_OPUS_MODEL}"
 
-    project="${project//\'/\'\'}"
+    project=$(episodic_sql_escape "$project")
 
     sqlite3 "$db" <<SQL
 INSERT INTO synthesis_log (project, synthesized_at, session_count, skills_created, skills_updated, model)
