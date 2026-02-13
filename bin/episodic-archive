@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+# episodic-archive: Archive and summarize a Claude Code session
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/db.sh"
+source "$BIN_DIR/../lib/extract.sh"
+source "$BIN_DIR/../lib/summarize.sh"
+[[ -f "$BIN_DIR/../lib/synthesize.sh" ]] && source "$BIN_DIR/../lib/synthesize.sh"
+
+usage() {
+    cat <<EOF
+Usage: episodic-archive [OPTIONS] [SESSION_PATH]
+
+Archive a Claude Code session JSONL file.
+
+Options:
+  --previous          Archive the most recent session for current project dir
+  --all-in DIR        Archive all sessions in a project directory
+  --no-summary        Skip Haiku summary generation (metadata only)
+  --dry-run           Show what would be archived without doing it
+  -h, --help          Show this help
+
+Examples:
+  episodic-archive /path/to/session.jsonl
+  episodic-archive --previous
+  episodic-archive --all-in ~/.claude/projects/-Users-foo-myproject/
+EOF
+}
+
+archive_session() {
+    local jsonl_path="$1"
+    local skip_summary="${2:-false}"
+    local dry_run="${3:-false}"
+
+    local session_file
+    session_file=$(basename "$jsonl_path" .jsonl)
+    local project_dir
+    project_dir=$(basename "$(dirname "$jsonl_path")")
+
+    # Check if already archived
+    if episodic_db_is_archived "$session_file"; then
+        episodic_log "INFO" "Session $session_file already archived, skipping"
+        return 0
+    fi
+
+    episodic_log "INFO" "Archiving session: $session_file"
+
+    # Extract metadata
+    local metadata
+    metadata=$(episodic_extract_metadata "$jsonl_path")
+    if [[ -z "$metadata" ]]; then
+        episodic_log "ERROR" "Failed to extract metadata from $jsonl_path"
+        return 1
+    fi
+
+    local session_id first_prompt message_count user_count assistant_count git_branch created_at modified_at
+    session_id=$(echo "$metadata" | jq -r '.session_id')
+    first_prompt=$(echo "$metadata" | jq -r '.first_prompt')
+    message_count=$(echo "$metadata" | jq -r '.message_count')
+    user_count=$(echo "$metadata" | jq -r '.user_message_count')
+    assistant_count=$(echo "$metadata" | jq -r '.assistant_message_count')
+    git_branch=$(echo "$metadata" | jq -r '.git_branch')
+    created_at=$(echo "$metadata" | jq -r '.created_at')
+    modified_at=$(echo "$metadata" | jq -r '.modified_at')
+
+    # Use filename as session_id if not found in content
+    if [[ "$session_id" == "unknown" || "$session_id" == "null" ]]; then
+        session_id="$session_file"
+    fi
+
+    # Derive project name
+    local project project_path
+    project=$(episodic_project_from_path "$project_dir")
+    project_path=$(episodic_project_path_from_dir "$project_dir")
+
+    # Calculate duration
+    local duration=0
+    if [[ -n "$created_at" && -n "$modified_at" && "$created_at" != "null" && "$modified_at" != "null" ]]; then
+        local start_epoch end_epoch
+        # Handle both ISO and epoch timestamps
+        if [[ "$created_at" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+            start_epoch="${created_at%%.*}"
+        else
+            start_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${created_at%%.*}" +%s 2>/dev/null || echo "0")
+        fi
+        if [[ "$modified_at" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+            end_epoch="${modified_at%%.*}"
+        else
+            end_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${modified_at%%.*}" +%s 2>/dev/null || echo "0")
+        fi
+
+        if [[ "$start_epoch" -gt 0 && "$end_epoch" -gt 0 ]]; then
+            # Timestamps might be in milliseconds
+            if [[ ${#start_epoch} -gt 12 ]]; then
+                start_epoch=$((start_epoch / 1000))
+                end_epoch=$((end_epoch / 1000))
+            fi
+            duration=$(( (end_epoch - start_epoch) / 60 ))
+            [[ $duration -lt 0 ]] && duration=0
+        fi
+    fi
+
+    # Convert epoch timestamps to ISO for storage
+    if [[ "$created_at" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+        local epoch_s="${created_at%%.*}"
+        [[ ${#epoch_s} -gt 12 ]] && epoch_s=$((epoch_s / 1000))
+        created_at=$(date -r "$epoch_s" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "$created_at")
+    fi
+    if [[ "$modified_at" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+        local epoch_s="${modified_at%%.*}"
+        [[ ${#epoch_s} -gt 12 ]] && epoch_s=$((epoch_s / 1000))
+        modified_at=$(date -r "$epoch_s" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "$modified_at")
+    fi
+
+    if [[ "$dry_run" == "true" ]]; then
+        echo "Would archive: $session_id"
+        echo "  Project: $project"
+        echo "  Messages: $message_count (user: $user_count, assistant: $assistant_count)"
+        echo "  Duration: ${duration}m"
+        echo "  First prompt: ${first_prompt:0:80}..."
+        return 0
+    fi
+
+    # Copy raw JSONL to archive
+    local archive_path="$EPISODIC_ARCHIVE_DIR/$project"
+    mkdir -p "$archive_path"
+    local archive_file="$archive_path/${session_file}.jsonl"
+    if [[ ! -f "$archive_file" ]]; then
+        cp "$jsonl_path" "$archive_file"
+    fi
+
+    # Insert session into database
+    episodic_db_insert_session \
+        "$session_id" "$project" "$project_path" "$archive_file" "$jsonl_path" \
+        "$first_prompt" "$message_count" "$user_count" "$assistant_count" \
+        "$git_branch" "$created_at" "$modified_at" "$duration"
+
+    episodic_db_update_log "$session_id" "archived"
+
+    # Generate summary unless skipped
+    if [[ "$skip_summary" != "true" ]]; then
+        local transcript
+        transcript=$(episodic_extract "$jsonl_path")
+
+        if [[ -n "$transcript" && ${#transcript} -gt 50 ]]; then
+            local summary_json
+            summary_json=$(episodic_summarize "$transcript")
+
+            if [[ -n "$summary_json" ]]; then
+                episodic_db_insert_summary "$session_id" "$summary_json" "$EPISODIC_SUMMARY_MODEL"
+                episodic_db_update_log "$session_id" "complete"
+                episodic_log "INFO" "Summary generated for $session_id"
+            else
+                episodic_db_update_log "$session_id" "summary_failed"
+                episodic_log "WARN" "Summary generation failed for $session_id"
+            fi
+        else
+            episodic_db_update_log "$session_id" "too_short"
+            episodic_log "INFO" "Session $session_id too short for summary"
+        fi
+    fi
+
+    # Trigger auto-synthesis check
+    if type episodic_maybe_synthesize &>/dev/null; then
+        episodic_maybe_synthesize "$project" || true
+    fi
+
+    echo "Archived: $session_id ($project, ${duration}m, $message_count msgs)"
+}
+
+# Main
+MODE="single"
+SKIP_SUMMARY=false
+DRY_RUN=false
+TARGET=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --previous)
+            MODE="previous"
+            shift
+            ;;
+        --all-in)
+            MODE="all"
+            TARGET="$2"
+            shift 2
+            ;;
+        --no-summary)
+            SKIP_SUMMARY=true
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            TARGET="$1"
+            shift
+            ;;
+    esac
+done
+
+case "$MODE" in
+    previous)
+        # Find current project's session directory
+        CWD="${CWD:-$(pwd)}"
+        PROJECT_DIR_NAME=$(echo "$CWD" | tr '/' '-')
+        SESSION_DIR="$EPISODIC_CLAUDE_PROJECTS/$PROJECT_DIR_NAME"
+
+        if [[ ! -d "$SESSION_DIR" ]]; then
+            episodic_log "WARN" "No sessions found for project at $SESSION_DIR"
+            exit 0
+        fi
+
+        # Find the most recently modified session (excluding current)
+        CURRENT_SESSION="${CLAUDE_SESSION_ID:-}"
+        LATEST=""
+        while IFS= read -r f; do
+            fname=$(basename "$f" .jsonl)
+            if [[ "$fname" != "$CURRENT_SESSION" ]]; then
+                LATEST="$f"
+                break
+            fi
+        done < <(ls -t "$SESSION_DIR"/*.jsonl 2>/dev/null)
+
+        if [[ -z "$LATEST" ]]; then
+            episodic_log "INFO" "No previous sessions to archive"
+            exit 0
+        fi
+
+        archive_session "$LATEST" "$SKIP_SUMMARY" "$DRY_RUN"
+        ;;
+
+    all)
+        if [[ ! -d "$TARGET" ]]; then
+            echo "ERROR: Directory not found: $TARGET" >&2
+            exit 1
+        fi
+        count=0
+        for f in "$TARGET"/*.jsonl; do
+            [[ -f "$f" ]] || continue
+            # Skip subagent directories
+            [[ "$f" == *"/subagents/"* ]] && continue
+            archive_session "$f" "$SKIP_SUMMARY" "$DRY_RUN"
+            count=$((count + 1))
+        done
+        echo "Processed $count sessions"
+        ;;
+
+    single)
+        if [[ -z "$TARGET" ]]; then
+            usage
+            exit 1
+        fi
+        archive_session "$TARGET" "$SKIP_SUMMARY" "$DRY_RUN"
+        ;;
+esac

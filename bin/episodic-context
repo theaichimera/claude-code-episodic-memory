@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# episodic-context: Generate context for session start injection
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/db.sh"
+[[ -f "$BIN_DIR/../lib/knowledge.sh" ]] && source "$BIN_DIR/../lib/knowledge.sh"
+
+usage() {
+    cat <<EOF
+Usage: episodic-context [OPTIONS]
+
+Generate recent session context for the current project.
+
+Options:
+  --project NAME      Project name (default: derived from CWD)
+  --count N           Number of recent sessions (default: $EPISODIC_CONTEXT_COUNT)
+  --format FORMAT     Output format: text (default), json
+  -h, --help          Show this help
+EOF
+}
+
+PROJECT=""
+COUNT="$EPISODIC_CONTEXT_COUNT"
+FORMAT="text"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --project) PROJECT="$2"; shift 2 ;;
+        --count) COUNT="$2"; shift 2 ;;
+        --format) FORMAT="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+
+# Derive project from CWD if not specified
+if [[ -z "$PROJECT" ]]; then
+    PROJECT=$(basename "${CWD:-$(pwd)}")
+fi
+
+# Check DB exists
+if [[ ! -f "$EPISODIC_DB" ]]; then
+    exit 0
+fi
+
+# Get recent sessions
+results=$(episodic_db_recent "$PROJECT" "$COUNT")
+
+if [[ -z "$results" || "$results" == "[]" ]]; then
+    exit 0
+fi
+
+if [[ "$FORMAT" == "json" ]]; then
+    echo "$results"
+    exit 0
+fi
+
+# Format as text block for context injection
+echo "# Recent Sessions (${PROJECT})"
+echo ""
+
+echo "$results" | jq -r '
+    .[] |
+    "## \(.created_at // "?") (\(.duration_minutes // 0)m)\(if .git_branch != "" and .git_branch != null then " [" + .git_branch + "]" else "" end)",
+    (.summary // "No summary available"),
+    "",
+    (if .topics != null and .topics != "[]" then
+        "Topics: " + (.topics | fromjson? // [.] | join(", "))
+    else empty end),
+    (if .decisions != null and .decisions != "[]" then
+        "Decisions: " + (.decisions | fromjson? // [.] | join(", "))
+    else empty end),
+    (if .key_insights != null and .key_insights != "[]" then
+        "Insights: " + (.key_insights | fromjson? // [.] | join(", "))
+    else empty end),
+    ""
+' 2>/dev/null
+
+# Output project skills from knowledge repo if available
+if type episodic_knowledge_is_configured &>/dev/null && episodic_knowledge_is_configured; then
+    skills=$(episodic_knowledge_list_skills "$PROJECT" 2>/dev/null)
+    if [[ -n "$skills" ]]; then
+        echo ""
+        echo "# Project Skills (${PROJECT})"
+        echo ""
+        while IFS= read -r skill_name; do
+            # Read first line after frontmatter as description
+            skill_file="$EPISODIC_KNOWLEDGE_DIR/$PROJECT/skills/${skill_name}.md"
+            if [[ -f "$skill_file" ]]; then
+                desc=$(sed -n '/^---$/,/^---$/d; /^#/{s/^# *//;p;q;}' "$skill_file" 2>/dev/null || echo "$skill_name")
+                echo "- $skill_name: $desc"
+            fi
+        done <<< "$skills"
+        echo ""
+    fi
+fi
+
+# Output indexed documents for project if available
+doc_count=$(sqlite3 "$EPISODIC_DB" "SELECT count(*) FROM documents WHERE project='$PROJECT';" 2>/dev/null || echo "0")
+if [[ "$doc_count" -gt 0 ]]; then
+    echo ""
+    echo "# Project Documents (${PROJECT})"
+    echo ""
+    sqlite3 "$EPISODIC_DB" "
+        SELECT file_name, title, file_type, file_size
+        FROM documents
+        WHERE project='$PROJECT'
+        ORDER BY file_name;
+    " 2>/dev/null | while IFS='|' read -r fname title ftype fsize; do
+        size_kb=$(( ${fsize:-0} / 1024 ))
+        echo "- ${fname} (${ftype:-unknown}, ${size_kb}KB): ${title:-$fname}"
+    done
+    echo ""
+fi

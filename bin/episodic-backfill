@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# episodic-backfill: One-time backfill of existing Claude Code sessions
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/db.sh"
+source "$BIN_DIR/../lib/extract.sh"
+source "$BIN_DIR/../lib/summarize.sh"
+
+usage() {
+    cat <<EOF
+Usage: episodic-backfill [OPTIONS]
+
+Backfill all existing Claude Code sessions into episodic memory.
+
+Options:
+  --no-summary        Skip Haiku summaries (metadata only, fast)
+  --retry-summaries   Retry failed summaries for already-archived sessions
+  --project PATTERN   Only backfill projects matching pattern
+  --dry-run           Show what would be backfilled
+  --limit N           Max sessions to process (default: unlimited)
+  --delay SECONDS     Delay between API calls (default: 0.5)
+  -h, --help          Show this help
+
+Examples:
+  episodic-backfill                         # Full backfill
+  episodic-backfill --no-summary            # Metadata only (fast, free)
+  episodic-backfill --retry-summaries       # Retry failed summaries
+  episodic-backfill --project myapp         # Just one project
+  episodic-backfill --dry-run               # Preview
+EOF
+}
+
+SKIP_SUMMARY=false
+DRY_RUN=false
+RETRY_SUMMARIES=false
+PROJECT_FILTER=""
+LIMIT=0
+DELAY=0.5
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --no-summary) SKIP_SUMMARY=true; shift ;;
+        --retry-summaries) RETRY_SUMMARIES=true; shift ;;
+        --project) PROJECT_FILTER="$2"; shift 2 ;;
+        --dry-run) DRY_RUN=true; shift ;;
+        --limit) LIMIT="$2"; shift 2 ;;
+        --delay) DELAY="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+
+# Ensure DB is initialized
+episodic_db_init "$EPISODIC_DB" >/dev/null 2>&1
+
+# Suppress auto-synthesis during backfill
+export EPISODIC_BACKFILL_MODE=true
+
+# Retry mode: find sessions with metadata but no summary and retry them
+if [[ "$RETRY_SUMMARIES" == "true" ]]; then
+    echo "Retrying failed summaries..."
+
+    retried=0
+    succeeded=0
+    still_failed=0
+
+    while IFS='|' read -r sid source_path project; do
+        [[ -n "$sid" ]] || continue
+
+        # Apply project filter
+        if [[ -n "$PROJECT_FILTER" && "$project" != *"$PROJECT_FILTER"* ]]; then
+            continue
+        fi
+
+        # Check limit
+        if [[ $LIMIT -gt 0 && $retried -ge $LIMIT ]]; then
+            echo "Limit reached ($LIMIT sessions)"
+            break
+        fi
+
+        retried=$((retried + 1))
+        echo -n "  [$retried] $project/$sid... "
+
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo "would retry"
+            continue
+        fi
+
+        if [[ ! -f "$source_path" ]]; then
+            echo "SKIP (source file missing)"
+            continue
+        fi
+
+        # Extract and summarize (wrapped in subshell to prevent set -e from killing the loop)
+        if result=$(bash -c '
+            source "'"$BIN_DIR"'/../lib/config.sh"
+            source "'"$BIN_DIR"'/../lib/db.sh"
+            source "'"$BIN_DIR"'/../lib/extract.sh"
+            source "'"$BIN_DIR"'/../lib/summarize.sh"
+            transcript=$(episodic_extract "'"$source_path"'")
+            if [[ -z "$transcript" || ${#transcript} -lt 50 ]]; then
+                echo "SKIP:${#transcript}"
+                exit 0
+            fi
+            summary_json=$(episodic_summarize "$transcript")
+            if [[ -n "$summary_json" ]]; then
+                episodic_db_insert_summary "'"$sid"'" "$summary_json" "$EPISODIC_SUMMARY_MODEL"
+                episodic_db_update_log "'"$sid"'" "complete"
+                echo "OK:${#transcript}"
+            else
+                echo "FAIL:summary"
+                exit 1
+            fi
+        ' 2>/dev/null); then
+            case "$result" in
+                OK:*)
+                    echo "OK (${result#OK:} chars)"
+                    succeeded=$((succeeded + 1))
+                    ;;
+                SKIP:*)
+                    echo "SKIP (transcript ${result#SKIP:} chars)"
+                    ;;
+            esac
+        else
+            echo "FAILED"
+            still_failed=$((still_failed + 1))
+        fi
+
+        sleep "$DELAY"
+    done < <(sqlite3 "$EPISODIC_DB" "
+        SELECT s.id, s.source_path, s.project
+        FROM sessions s
+        LEFT JOIN summaries sum ON sum.session_id = s.id
+        WHERE sum.session_id IS NULL
+        ORDER BY s.created_at DESC;
+    ")
+
+    echo ""
+    echo "Retry complete:"
+    echo "  Attempted:    $retried"
+    echo "  Succeeded:    $succeeded"
+    echo "  Still failed: $still_failed"
+    exit 0
+fi
+
+# Normal backfill mode
+echo "Scanning ${EPISODIC_CLAUDE_PROJECTS}..."
+
+total=0
+archived=0
+skipped=0
+failed=0
+
+for project_dir in "$EPISODIC_CLAUDE_PROJECTS"/*/; do
+    [[ -d "$project_dir" ]] || continue
+    project_name=$(basename "$project_dir")
+
+    # Apply project filter
+    if [[ -n "$PROJECT_FILTER" && "$project_name" != *"$PROJECT_FILTER"* ]]; then
+        continue
+    fi
+
+    for jsonl_file in "$project_dir"*.jsonl; do
+        [[ -f "$jsonl_file" ]] || continue
+
+        session_file=$(basename "$jsonl_file" .jsonl)
+        total=$((total + 1))
+
+        # Check limit
+        if [[ $LIMIT -gt 0 && $archived -ge $LIMIT ]]; then
+            echo "Limit reached ($LIMIT sessions)"
+            break 2
+        fi
+
+        # Skip already archived
+        if episodic_db_is_archived "$session_file"; then
+            skipped=$((skipped + 1))
+            continue
+        fi
+
+        project=$(episodic_project_from_path "$project_name")
+
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo "  Would archive: $session_file ($project)"
+            archived=$((archived + 1))
+            continue
+        fi
+
+        echo -n "  [$((archived + 1))] $project/$session_file... "
+
+        # Archive the session (call the archive script)
+        if [[ "$SKIP_SUMMARY" == "true" ]]; then
+            archive_result=$("$BIN_DIR/episodic-archive" --no-summary "$jsonl_file" 2>&1) || true
+        else
+            archive_result=$("$BIN_DIR/episodic-archive" "$jsonl_file" 2>&1) || true
+        fi
+        if [[ "$archive_result" == *"Archived:"* ]]; then
+            echo "$archive_result"
+            archived=$((archived + 1))
+        else
+            echo "FAILED: $archive_result"
+            failed=$((failed + 1))
+        fi
+
+        # Rate limit if generating summaries
+        if [[ "$SKIP_SUMMARY" != "true" ]]; then
+            sleep "$DELAY"
+        fi
+    done
+done
+
+echo ""
+echo "Backfill complete:"
+echo "  Total found:  $total"
+echo "  Archived:     $archived"
+echo "  Skipped:      $skipped (already archived)"
+echo "  Failed:       $failed"
+echo "  DB sessions:  $(episodic_db_count)"
+
+# Suggest retry if there were failures
+if [[ $failed -gt 0 && "$SKIP_SUMMARY" != "true" ]]; then
+    echo ""
+    echo "Tip: Run with --retry-summaries to retry failed summaries."
+fi

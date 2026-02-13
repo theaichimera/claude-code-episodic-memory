@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+# episodic-query: Search episodic memory using FTS5
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/db.sh"
+
+usage() {
+    cat <<EOF
+Usage: episodic-query [OPTIONS] <search terms>
+
+Search your Claude Code session history.
+
+Options:
+  --project PROJECT   Filter to a specific project
+  --limit N           Max results (default: 10)
+  --json              Output raw JSON
+  --recent [N]        Show N most recent sessions (default: 5)
+  --docs-only           Search only indexed documents (not sessions)
+  -h, --help          Show this help
+
+Examples:
+  episodic-query "API optimization"
+  episodic-query --project myapp "container scaling"
+  episodic-query --recent 5
+  episodic-query --json "FTS5 search"
+EOF
+}
+
+format_results() {
+    local json="$1"
+
+    if [[ -z "$json" || "$json" == "[]" ]]; then
+        echo "No results found."
+        return
+    fi
+
+    echo "$json" | jq -r '
+        .[] |
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "📅 \(.created_at // "unknown")  |  📁 \(.project)  |  ⏱️  \(.duration_minutes // 0)m",
+        (if .git_branch != "" and .git_branch != null then "🔀 \(.git_branch)" else empty end),
+        "",
+        "💬 \(.first_prompt // "" | .[0:120])",
+        "",
+        "📝 \(.summary // "No summary")",
+        "",
+        (if .topics != null and .topics != "[]" then
+            "Topics: " + (.topics | fromjson? // [.] | join(", "))
+        else empty end),
+        (if .decisions != null and .decisions != "[]" then
+            "Decisions: " + (.decisions | fromjson? // [.] | join(", "))
+        else empty end),
+        (if .key_insights != null and .key_insights != "[]" then
+            "Insights: " + (.key_insights | fromjson? // [.] | join(", "))
+        else empty end),
+        (if .dead_ends != null and .dead_ends != "[]" then
+            "Dead ends: " + (.dead_ends | fromjson? // [.] | join(", "))
+        else empty end),
+        ""
+    ' 2>/dev/null
+}
+
+format_doc_results() {
+    local json="$1"
+
+    if [[ -z "$json" || "$json" == "[]" ]]; then
+        echo "No document results found."
+        return
+    fi
+
+    echo "$json" | jq -r '
+        .[] |
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "📄 \(.file_name)  |  📁 \(.project)  |  \(.file_type // "unknown")",
+        "   \(.file_path)",
+        "",
+        (if .snippet != null and .snippet != "" then
+            "   \(.snippet)"
+        else empty end),
+        ""
+    ' 2>/dev/null
+}
+
+# Main
+LIMIT=10
+PROJECT=""
+JSON_OUTPUT=false
+RECENT_MODE=false
+QUERY=""
+DOCS_ONLY=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --project)
+            PROJECT="$2"
+            shift 2
+            ;;
+        --limit)
+            LIMIT="$2"
+            shift 2
+            ;;
+        --json)
+            JSON_OUTPUT=true
+            shift
+            ;;
+        --recent)
+            RECENT_MODE=true
+            if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+                LIMIT="$2"
+                shift
+            else
+                LIMIT=5
+            fi
+            shift
+            ;;
+        --docs-only)
+            DOCS_ONLY=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            QUERY="${QUERY:+$QUERY }$1"
+            shift
+            ;;
+    esac
+done
+
+if [[ "$RECENT_MODE" == "true" ]]; then
+    # Show recent sessions
+    if [[ -n "$PROJECT" ]]; then
+        results=$(episodic_db_recent "$PROJECT" "$LIMIT")
+    else
+        results=$(sqlite3 -json "$EPISODIC_DB" "
+            SELECT s.id, s.project, s.created_at, s.first_prompt, s.git_branch,
+                   s.duration_minutes, sum.summary, sum.topics, sum.decisions, sum.key_insights, sum.dead_ends
+            FROM sessions s
+            LEFT JOIN summaries sum ON sum.session_id = s.id
+            ORDER BY s.created_at DESC
+            LIMIT $LIMIT;
+        ")
+    fi
+
+    if [[ "$JSON_OUTPUT" == "true" ]]; then
+        echo "$results"
+    else
+        format_results "$results"
+    fi
+    exit 0
+fi
+
+if [[ -z "$QUERY" ]]; then
+    usage
+    exit 1
+fi
+
+# Docs-only mode: search only documents
+if [[ "$DOCS_ONLY" == "true" ]]; then
+    query_escaped="${QUERY//\'/\'\'}"
+    doc_results=$(sqlite3 -json "$EPISODIC_DB" "
+        SELECT d.id, d.project, d.file_path, d.file_name, d.title, d.file_type,
+               d.indexed_at, d.file_size, d.extraction_method,
+               snippet(documents_fts, 4, '>>>', '<<<', '...', 30) as snippet, rank
+        FROM documents_fts fts
+        JOIN documents d ON d.id = fts.doc_id
+        WHERE documents_fts MATCH '$query_escaped'
+        ORDER BY rank
+        LIMIT $LIMIT;
+    " 2>/dev/null || echo "[]")
+
+    if [[ "$JSON_OUTPUT" == "true" ]]; then
+        echo "$doc_results"
+    else
+        format_doc_results "$doc_results"
+    fi
+    exit 0
+fi
+
+# FTS5 session search
+if [[ -n "$PROJECT" ]]; then
+    results=$(sqlite3 -json "$EPISODIC_DB" "
+        SELECT s.id, s.project, s.created_at, s.first_prompt, s.git_branch,
+               s.duration_minutes, sum.summary, sum.topics, sum.decisions,
+               sum.key_insights, sum.dead_ends, rank
+        FROM sessions_fts fts
+        JOIN sessions s ON s.id = fts.session_id
+        JOIN summaries sum ON sum.session_id = fts.session_id
+        WHERE sessions_fts MATCH '${QUERY//\'/\'\'}' AND s.project = '${PROJECT//\'/\'\'}'
+        ORDER BY rank
+        LIMIT $LIMIT;
+    ")
+else
+    results=$(episodic_db_search "$QUERY" "$LIMIT")
+fi
+
+if [[ "$JSON_OUTPUT" == "true" ]]; then
+    echo "$results"
+else
+    format_results "$results"
+fi
+
+# Also search documents and append results (unless --json mode)
+if [[ "$JSON_OUTPUT" != "true" ]]; then
+    query_escaped="${QUERY//\'/\'\'}"
+    doc_results=$(sqlite3 -json "$EPISODIC_DB" "
+        SELECT d.id, d.project, d.file_path, d.file_name, d.title, d.file_type,
+               d.indexed_at, d.file_size, d.extraction_method,
+               snippet(documents_fts, 4, '>>>', '<<<', '...', 30) as snippet, rank
+        FROM documents_fts fts
+        JOIN documents d ON d.id = fts.doc_id
+        WHERE documents_fts MATCH '$query_escaped'
+        ORDER BY rank
+        LIMIT 5;
+    " 2>/dev/null || echo "[]")
+
+    if [[ -n "$doc_results" && "$doc_results" != "[]" ]]; then
+        echo ""
+        echo "━━━ Documents ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        format_doc_results "$doc_results"
+    fi
+fi

@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# episodic-index: Index knowledge repo documents for search
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/index.sh"
+
+usage() {
+    cat <<EOF
+Usage: episodic-index [OPTIONS] [FILE_OR_DIR]
+
+Index knowledge repo documents for full-text search.
+
+Options:
+  --all                 Index all files in knowledge dir (all projects)
+  --project PROJECT     Only index files for this project
+  --stats               Show index statistics
+  --cleanup             Remove stale entries for missing files
+  --search QUERY        Quick search (mostly for testing)
+  -h, --help            Show this help
+
+Arguments:
+  FILE_OR_DIR           Index a specific file or directory
+
+Examples:
+  episodic-index --all
+  episodic-index --project myapp
+  episodic-index --search "API optimization"
+  episodic-index --stats
+  episodic-index /path/to/file.md --project myapp
+  episodic-index /path/to/dir --project myapp
+EOF
+}
+
+# Main
+MODE=""
+PROJECT=""
+SEARCH_QUERY=""
+TARGET=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --all)
+            MODE="all"
+            shift
+            ;;
+        --project)
+            PROJECT="$2"
+            shift 2
+            ;;
+        --stats)
+            MODE="stats"
+            shift
+            ;;
+        --cleanup)
+            MODE="cleanup"
+            shift
+            ;;
+        --search)
+            MODE="search"
+            SEARCH_QUERY="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            TARGET="$1"
+            shift
+            ;;
+    esac
+done
+
+# Initialize DB and document tables
+episodic_db_init "$EPISODIC_DB" >/dev/null 2>&1
+episodic_db_init_documents "$EPISODIC_DB"
+
+case "$MODE" in
+    all)
+        if [[ ! -d "$EPISODIC_KNOWLEDGE_DIR" ]]; then
+            echo "ERROR: Knowledge directory not found: $EPISODIC_KNOWLEDGE_DIR" >&2
+            exit 1
+        fi
+        echo "Indexing all projects in $EPISODIC_KNOWLEDGE_DIR..."
+        for project_dir in "$EPISODIC_KNOWLEDGE_DIR"/*/; do
+            [[ -d "$project_dir" ]] || continue
+            project_name=$(basename "$project_dir")
+            # Skip hidden directories
+            [[ "$project_name" == .* ]] && continue
+            echo "  Project: $project_name"
+            episodic_index_directory "$project_dir" "$project_name"
+        done
+        echo "Done."
+        ;;
+    stats)
+        episodic_index_stats
+        ;;
+    cleanup)
+        if [[ -n "$PROJECT" ]]; then
+            episodic_index_cleanup "$PROJECT"
+        elif [[ -d "$EPISODIC_KNOWLEDGE_DIR" ]]; then
+            for project_dir in "$EPISODIC_KNOWLEDGE_DIR"/*/; do
+                [[ -d "$project_dir" ]] || continue
+                project_name=$(basename "$project_dir")
+                [[ "$project_name" == .* ]] && continue
+                echo "  Cleaning up: $project_name"
+                episodic_index_cleanup "$project_name"
+            done
+        else
+            echo "ERROR: Specify --project or ensure knowledge dir exists" >&2
+            exit 1
+        fi
+        ;;
+    search)
+        if [[ -z "$SEARCH_QUERY" ]]; then
+            echo "ERROR: --search requires a query" >&2
+            exit 1
+        fi
+        episodic_index_search "$SEARCH_QUERY"
+        ;;
+    "")
+        # Index a specific file or directory
+        if [[ -z "$TARGET" ]]; then
+            usage
+            exit 1
+        fi
+        if [[ -z "$PROJECT" ]]; then
+            # Try to infer project from path
+            if [[ "$TARGET" == "$EPISODIC_KNOWLEDGE_DIR"/* ]]; then
+                # Extract project name from knowledge dir path
+                local_rel="${TARGET#$EPISODIC_KNOWLEDGE_DIR/}"
+                PROJECT="${local_rel%%/*}"
+            else
+                PROJECT="default"
+            fi
+        fi
+        if [[ -f "$TARGET" ]]; then
+            episodic_index_file "$TARGET" "$PROJECT"
+        elif [[ -d "$TARGET" ]]; then
+            episodic_index_directory "$TARGET" "$PROJECT"
+        else
+            echo "ERROR: File or directory not found: $TARGET" >&2
+            exit 1
+        fi
+        ;;
+esac
