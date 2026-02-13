@@ -75,8 +75,10 @@ Four interconnected systems:
 │   ├── on-session-start.sh             # SessionStart hook
 │   └── on-stop.sh                      # Stop hook
 ├── skills/
-│   └── recall/
-│       └── SKILL.md                    # /recall skill definition
+│   ├── recall/
+│   │   └── SKILL.md                    # /recall — search session history
+│   └── save-skill/
+│       └── SKILL.md                    # /save-skill — save insight as skill
 ├── lib/
 │   ├── config.sh                       # Configuration (paths, env vars)
 │   ├── db.sh                           # SQLite helpers
@@ -145,9 +147,24 @@ Insights: Pricing varies significantly by request type and region
 Fixed container task definitions for background service.
 Decisions: Add auto-scaling policy
 
-# Project Skills
-- /skills/api-optimization.md: Cost analysis workflow for API optimization
-- /skills/container-scaling.md: Auto-scaling checklist for container services
+# Project Skills (acme-app)
+
+## Pinned Skills (manually saved)
+
+### deployment-checklist
+# Deployment Checklist
+1. Run tests locally
+2. Check staging environment
+...
+
+### api-optimization
+# API Cost Analysis Workflow
+When analyzing API costs for a service:
+1. Query billing data directly...
+2. Compare to estimated usage...
+
+## Older Skills (summary only, use /recall for details)
+- container-scaling: Auto-scaling checklist for container services
 ```
 
 ### 4. Document Indexing (automatic on session start)
@@ -290,10 +307,36 @@ estimates with real billing data before acting on them.
 
 ### When to Synthesize
 
-- **Automatic**: After every N archived sessions (configurable via `EPISODIC_SYNTHESIZE_EVERY`, default: 10). Runs in background after `episodic-archive`.
+- **Automatic**: After every N archived sessions (configurable via `EPISODIC_SYNTHESIZE_EVERY`, default: 2). Runs in background after `episodic-archive`.
 - **On demand**: `/synthesize` or `bin/episodic-synthesize --project acme-app`
+- **After backfill**: `episodic-backfill --synthesize` runs synthesis for all qualifying projects after import
+- **Manual save**: `/save-skill` during a session to explicitly save an insight as a skill
 - **Manual review**: Skills are Markdown — you can edit them directly
-- **Suppressed during backfill**: `episodic-backfill` sets `EPISODIC_BACKFILL_MODE=true` to avoid triggering synthesis for every imported session
+- **Suppressed during backfill**: `episodic-backfill` sets `EPISODIC_BACKFILL_MODE=true` to avoid triggering per-session synthesis during bulk import
+
+### Skill Decay (Context Injection)
+
+Skills are injected into session context using a decay function based on age:
+
+| Tier | Age | Injection | Purpose |
+|------|-----|-----------|---------|
+| **Pinned** | Any age | Full content | Manually saved via `/save-skill` (`source: manual`) — never decays |
+| **Fresh** | ≤30 days | Full content | Recently generated/reinforced by synthesis |
+| **Aging** | 31-90 days | One-line summary | Still listed, use `/recall` for full content |
+| **Stale** | >90 days | Omitted | Still searchable via `/recall`, not injected |
+
+Synthesis naturally refreshes skills when patterns recur in new sessions, keeping actively-used knowledge in the fresh tier. Thresholds are configurable via `EPISODIC_SKILL_FRESH_DAYS` and `EPISODIC_SKILL_AGING_DAYS`.
+
+### /save-skill — Manual Skill Creation
+
+During any session, use `/save-skill` to explicitly save a conversation insight:
+
+```
+/save-skill deployment-checklist    # Save with a specific name
+/save-skill                         # Auto-name from content
+```
+
+Manual skills get `source: manual` and `confidence: high` in their frontmatter. They appear in a "Pinned Skills" section at the top of context injection and never decay.
 
 ## SQLite Schema
 
@@ -475,7 +518,11 @@ EPISODIC_INDEX_VISION_MODEL="${EPISODIC_INDEX_VISION_MODEL:-claude-haiku-4-5-202
 # Tuning
 EPISODIC_CONTEXT_COUNT="${EPISODIC_CONTEXT_COUNT:-3}"        # sessions to inject on start
 EPISODIC_MAX_EXTRACT_CHARS="${EPISODIC_MAX_EXTRACT_CHARS:-100000}"  # transcript truncation
-EPISODIC_SYNTHESIZE_EVERY="${EPISODIC_SYNTHESIZE_EVERY:-5}"  # sessions between auto-synthesis
+EPISODIC_SYNTHESIZE_EVERY="${EPISODIC_SYNTHESIZE_EVERY:-2}"  # sessions between auto-synthesis
+
+# Skill decay thresholds (days) for context injection
+EPISODIC_SKILL_FRESH_DAYS="${EPISODIC_SKILL_FRESH_DAYS:-30}"   # full content injection
+EPISODIC_SKILL_AGING_DAYS="${EPISODIC_SKILL_AGING_DAYS:-90}"   # one-line summary only
 ```
 
 ## CLI Reference
@@ -491,6 +538,7 @@ EPISODIC_SYNTHESIZE_EVERY="${EPISODIC_SYNTHESIZE_EVERY:-5}"  # sessions between 
 | `episodic-query --recent [N]` | Show N most recent sessions |
 | `episodic-query --project X <terms>` | Search within a specific project |
 | `episodic-backfill` | Bulk import all existing sessions |
+| `episodic-backfill --synthesize` | Backfill + generate skills for qualifying projects |
 | `episodic-backfill --dry-run` | Preview without archiving |
 | `episodic-context` | Generate context block for current project |
 | `episodic-knowledge-init <repo-url>` | Clone and configure knowledge repo |
@@ -502,6 +550,8 @@ EPISODIC_SYNTHESIZE_EVERY="${EPISODIC_SYNTHESIZE_EVERY:-5}"  # sessions between 
 | `episodic-index --search <terms>` | Quick document search |
 | `episodic-index --stats` | Show index statistics (JSON) |
 | `episodic-index --cleanup` | Remove entries for deleted files |
+| `/recall <terms>` | Search sessions + documents (slash command) |
+| `/save-skill [name]` | Save conversation insight as a pinned skill (slash command) |
 
 ## Design Decisions
 
