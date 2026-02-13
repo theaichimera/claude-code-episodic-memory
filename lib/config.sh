@@ -10,7 +10,7 @@ EPISODIC_CLAUDE_PROJECTS="${EPISODIC_CLAUDE_PROJECTS:-$HOME/.claude/projects}"
 # Summary model: used for session summarization
 # Default: Opus 4.6. Override with any Anthropic model ID.
 # Examples: claude-opus-4-5-20251101, claude-sonnet-4-5-20250929, claude-haiku-4-5-20251001
-EPISODIC_SUMMARY_MODEL="${EPISODIC_SUMMARY_MODEL:-claude-opus-4-5-20251101}"
+EPISODIC_SUMMARY_MODEL="${EPISODIC_SUMMARY_MODEL:-claude-opus-4-6-20260205}"
 
 # Enable extended thinking for summary generation (true/false)
 # When enabled, the model thinks through the session before summarizing.
@@ -21,7 +21,7 @@ EPISODIC_SUMMARY_THINKING="${EPISODIC_SUMMARY_THINKING:-true}"
 EPISODIC_SUMMARY_THINKING_BUDGET="${EPISODIC_SUMMARY_THINKING_BUDGET:-10000}"
 
 # Skill synthesis model
-EPISODIC_OPUS_MODEL="${EPISODIC_OPUS_MODEL:-claude-opus-4-5-20251101}"
+EPISODIC_OPUS_MODEL="${EPISODIC_OPUS_MODEL:-claude-opus-4-6-20260205}"
 
 # Vision model for PDF/image OCR during document indexing
 EPISODIC_INDEX_VISION_MODEL="${EPISODIC_INDEX_VISION_MODEL:-claude-haiku-4-5-20251001}"
