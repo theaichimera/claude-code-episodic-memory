@@ -7,8 +7,8 @@ source "$_EPISODIC_LIB_DIR/config.sh"
 source "$_EPISODIC_LIB_DIR/db.sh"
 source "$_EPISODIC_LIB_DIR/knowledge.sh"
 
-EPISODIC_OPUS_MODEL="${EPISODIC_OPUS_MODEL:-claude-opus-4-6-20260205}"
-EPISODIC_SYNTHESIZE_EVERY="${EPISODIC_SYNTHESIZE_EVERY:-5}"
+# All defaults (EPISODIC_OPUS_MODEL, EPISODIC_SYNTHESIZE_EVERY, etc.)
+# are set in config.sh — the single source of truth for configuration.
 
 # Generate a skill Markdown file with YAML frontmatter
 # Usage: episodic_synthesize_format_skill <name> <project> <session_ids_csv> <confidence> <body>
