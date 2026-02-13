@@ -126,7 +126,7 @@ episodic_index_file() {
 
     # Check if already indexed with same hash
     local existing_hash
-    existing_hash=$(episodic_db_exec "SELECT content_hash FROM documents WHERE id='${doc_id//\'/\'\'}';" "$db" 2>/dev/null || true)
+    existing_hash=$(episodic_db_exec "SELECT content_hash FROM documents WHERE id='$(episodic_sql_escape "$doc_id")';" "$db" 2>/dev/null || true)
     if [[ "$existing_hash" == "$content_hash" ]]; then
         episodic_log "INFO" "Skipping unchanged file: $file_path"
         return 0
@@ -179,13 +179,13 @@ episodic_index_file() {
         csv) extraction_method="csv-head" ;;
     esac
 
-    # Escape single quotes for SQL
-    local safe_id="${doc_id//\'/\'\'}"
-    local safe_project="${project//\'/\'\'}"
-    local safe_file_path="${file_path//\'/\'\'}"
-    local safe_file_name="${file_name//\'/\'\'}"
-    local safe_title="${title//\'/\'\'}"
-    local safe_text="${extracted_text//\'/\'\'}"
+    local safe_id safe_project safe_file_path safe_file_name safe_title safe_text
+    safe_id=$(episodic_sql_escape "$doc_id")
+    safe_project=$(episodic_sql_escape "$project")
+    safe_file_path=$(episodic_sql_escape "$file_path")
+    safe_file_name=$(episodic_sql_escape "$file_name")
+    safe_title=$(episodic_sql_escape "$title")
+    safe_text=$(episodic_sql_escape "$extracted_text")
 
     # Insert/replace into documents table
     episodic_db_exec_multi "$db" <<SQL
@@ -265,8 +265,7 @@ episodic_index_search() {
     local limit="${2:-10}"
     local db="${EPISODIC_DB}"
 
-    # Escape single quotes in query
-    query="${query//\'/\'\'}"
+    query=$(episodic_sql_escape "$query")
 
     episodic_db_query_json "
 SELECT d.id, d.project, d.file_path, d.file_name, d.title, d.file_type,
@@ -311,8 +310,8 @@ episodic_index_cleanup() {
     local db="${EPISODIC_DB}"
     local removed=0
 
-    # Escape single quotes
-    local safe_project="${project//\'/\'\'}"
+    local safe_project
+    safe_project=$(episodic_sql_escape "$project")
 
     local doc_ids_paths
     doc_ids_paths=$(episodic_db_exec "SELECT id, file_path FROM documents WHERE project='$safe_project';" "$db")
@@ -320,7 +319,8 @@ episodic_index_cleanup() {
     while IFS='|' read -r doc_id file_path; do
         [[ -z "$doc_id" ]] && continue
         if [[ ! -f "$file_path" ]]; then
-            local safe_id="${doc_id//\'/\'\'}"
+            local safe_id
+            safe_id=$(episodic_sql_escape "$doc_id")
             episodic_db_exec_multi "$db" <<SQL
 DELETE FROM documents WHERE id = '$safe_id';
 DELETE FROM documents_fts WHERE doc_id = '$safe_id';
