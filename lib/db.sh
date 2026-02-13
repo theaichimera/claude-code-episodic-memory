@@ -76,13 +76,13 @@ CREATE TABLE IF NOT EXISTS documents (
     project TEXT NOT NULL,
     file_path TEXT NOT NULL,
     file_name TEXT NOT NULL,
+    title TEXT,
     file_type TEXT,
+    file_size INTEGER,
     content_hash TEXT,
     extracted_text TEXT,
-    title TEXT,
-    indexed_at TEXT,
-    file_size INTEGER,
-    extraction_method TEXT
+    extraction_method TEXT,
+    indexed_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS synthesis_log (

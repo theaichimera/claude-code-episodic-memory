@@ -6,47 +6,10 @@ source "$_EPISODIC_LIB_DIR/config.sh"
 source "$_EPISODIC_LIB_DIR/db.sh"
 
 # Initialize document tables (idempotent)
-# Called from here and also from db.sh's episodic_db_init
+# Delegates to episodic_db_init in db.sh which owns all schema definitions.
 episodic_db_init_documents() {
     local db="${1:-$EPISODIC_DB}"
-    mkdir -p "$(dirname "$db")"
-
-    sqlite3 "$db" <<'SQL'
-CREATE TABLE IF NOT EXISTS documents (
-    id TEXT PRIMARY KEY,
-    project TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    file_name TEXT NOT NULL,
-    title TEXT,
-    file_type TEXT,
-    file_size INTEGER,
-    content_hash TEXT,
-    extracted_text TEXT,
-    extraction_method TEXT,
-    indexed_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_documents_project ON documents(project);
-CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_hash);
-SQL
-
-    # FTS5 table needs special handling
-    local fts_exists
-    fts_exists=$(sqlite3 "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='documents_fts';")
-    if [[ "$fts_exists" == "0" ]]; then
-        sqlite3 "$db" <<'SQL'
-CREATE VIRTUAL TABLE documents_fts USING fts5(
-    doc_id UNINDEXED,
-    project,
-    file_name,
-    title,
-    extracted_text,
-    tokenize='porter unicode61'
-);
-SQL
-    fi
-
-    episodic_log "INFO" "Document tables initialized at $db"
+    episodic_db_init "$db"
 }
 
 # Extract text content from a file based on its extension
