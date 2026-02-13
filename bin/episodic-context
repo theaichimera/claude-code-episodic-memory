@@ -85,12 +85,21 @@ if type episodic_knowledge_is_configured &>/dev/null && episodic_knowledge_is_co
         fresh_seconds=$(( ${EPISODIC_SKILL_FRESH_DAYS:-30} * 86400 ))
         aging_seconds=$(( ${EPISODIC_SKILL_AGING_DAYS:-90} * 86400 ))
 
+        manual_skills=""
         fresh_skills=""
         aging_skills=""
 
         while IFS= read -r skill_name; do
             skill_file="$EPISODIC_KNOWLEDGE_DIR/$PROJECT/skills/${skill_name}.md"
             [[ -f "$skill_file" ]] || continue
+
+            # Check if manually created (always full content, never decays)
+            skill_source=$(grep '^source:' "$skill_file" 2>/dev/null | head -1 | sed 's/^source: *//')
+            if [[ "$skill_source" == "manual" ]]; then
+                content=$(awk 'BEGIN{f=0} /^---$/{f++; next} f>=2' "$skill_file" 2>/dev/null)
+                manual_skills+="### ${skill_name}"$'\n'"${content}"$'\n\n'
+                continue
+            fi
 
             # Parse generated date from YAML frontmatter
             gen_date=$(grep '^generated:' "$skill_file" 2>/dev/null | head -1 | sed 's/^generated: *//')
@@ -123,9 +132,16 @@ if type episodic_knowledge_is_configured &>/dev/null && episodic_knowledge_is_co
             # Stale (>90 days): omitted entirely, still searchable via /recall
         done <<< "$skills"
 
-        if [[ -n "$fresh_skills" || -n "$aging_skills" ]]; then
+        if [[ -n "$manual_skills" || -n "$fresh_skills" || -n "$aging_skills" ]]; then
             echo ""
             echo "# Project Skills (${PROJECT})"
+        fi
+
+        if [[ -n "$manual_skills" ]]; then
+            echo ""
+            echo "## Pinned Skills (manually saved)"
+            echo ""
+            printf '%s' "$manual_skills"
         fi
 
         if [[ -n "$fresh_skills" ]]; then
