@@ -96,27 +96,35 @@ if [[ "$RETRY_SUMMARIES" == "true" ]]; then
             continue
         fi
 
-        # Extract and summarize (wrapped in subshell to prevent set -e from killing the loop)
-        if result=$(bash -c '
-            source "'"$BIN_DIR"'/../lib/config.sh"
-            source "'"$BIN_DIR"'/../lib/db.sh"
-            source "'"$BIN_DIR"'/../lib/extract.sh"
-            source "'"$BIN_DIR"'/../lib/summarize.sh"
-            transcript=$(episodic_extract "'"$source_path"'")
-            if [[ -z "$transcript" || ${#transcript} -lt 50 ]]; then
-                echo "SKIP:${#transcript}"
-                exit 0
-            fi
-            summary_json=$(episodic_summarize "$transcript")
-            if [[ -n "$summary_json" ]]; then
-                episodic_db_insert_summary "'"$sid"'" "$summary_json" "$EPISODIC_SUMMARY_MODEL"
-                episodic_db_update_log "'"$sid"'" "complete"
-                echo "OK:${#transcript}"
-            else
-                echo "FAIL:summary"
-                exit 1
-            fi
-        ' 2>/dev/null); then
+        # Extract and summarize in a subshell to prevent set -e from killing the loop.
+        # Pass values via exported env vars to avoid shell injection from single quotes
+        # in file paths or session IDs.
+        if result=$(
+            _RETRY_SID="$sid" \
+            _RETRY_SOURCE="$source_path" \
+            _RETRY_BIN_DIR="$BIN_DIR" \
+            bash -c '
+                set -euo pipefail
+                source "$_RETRY_BIN_DIR/../lib/config.sh"
+                source "$_RETRY_BIN_DIR/../lib/db.sh"
+                source "$_RETRY_BIN_DIR/../lib/extract.sh"
+                source "$_RETRY_BIN_DIR/../lib/summarize.sh"
+                transcript=$(episodic_extract "$_RETRY_SOURCE")
+                if [[ -z "$transcript" || ${#transcript} -lt 50 ]]; then
+                    echo "SKIP:${#transcript}"
+                    exit 0
+                fi
+                summary_json=$(episodic_summarize "$transcript")
+                if [[ -n "$summary_json" ]]; then
+                    episodic_db_insert_summary "$_RETRY_SID" "$summary_json" "$EPISODIC_SUMMARY_MODEL"
+                    episodic_db_update_log "$_RETRY_SID" "complete"
+                    echo "OK:${#transcript}"
+                else
+                    echo "FAIL:summary"
+                    exit 1
+                fi
+            ' 2>/dev/null
+        ); then
             case "$result" in
                 OK:*)
                     echo "OK (${result#OK:} chars)"
