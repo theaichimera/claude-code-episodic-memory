@@ -243,6 +243,35 @@ episodic_knowledge_push() {
     episodic_log "INFO" "Pushed knowledge changes: $message"
 }
 
+# Abort any in-progress rebase and clean up dirty state in the knowledge repo.
+# Returns 0 if repo is clean after recovery, 1 if unrecoverable.
+# Usage: episodic_knowledge_recover_repo
+episodic_knowledge_recover_repo() {
+    local repo="$EPISODIC_KNOWLEDGE_DIR"
+
+    # Abort in-progress rebase
+    if [[ -d "$repo/.git/rebase-merge" ]] || [[ -d "$repo/.git/rebase-apply" ]]; then
+        episodic_log "WARN" "Aborting in-progress rebase in knowledge repo"
+        git -C "$repo" rebase --abort 2>/dev/null || {
+            # If rebase --abort fails (e.g., stale marker dirs), remove them manually
+            rm -rf "$repo/.git/rebase-merge" "$repo/.git/rebase-apply" 2>/dev/null || true
+        }
+    fi
+
+    # Check for conflict markers in tracked files — refuse to commit if found
+    if git -C "$repo" diff --name-only 2>/dev/null | head -1 | grep -q .; then
+        # There are unstaged changes — check for conflict markers
+        if git -C "$repo" diff 2>/dev/null | grep -qE '^[+](<{7}|={7}|>{7})'; then
+            episodic_log "ERROR" "Conflict markers detected in knowledge repo — manual resolution needed"
+            # Reset to clean state
+            git -C "$repo" checkout -- . 2>/dev/null || true
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
 # Pull latest changes from remote
 # Usage: episodic_knowledge_pull
 episodic_knowledge_pull() {
@@ -259,8 +288,13 @@ episodic_knowledge_pull() {
 
     local repo="$EPISODIC_KNOWLEDGE_DIR"
 
+    # Recover from any prior failed rebase
+    episodic_knowledge_recover_repo
+
     if ! git -C "$repo" pull --rebase --quiet 2>/dev/null; then
         episodic_log "WARN" "Failed to pull knowledge repo (offline or conflict?)"
+        # Abort the failed rebase to leave repo in a clean state
+        episodic_knowledge_recover_repo
         return 1
     fi
 
@@ -293,13 +327,30 @@ episodic_knowledge_sync() {
             trap 'episodic_knowledge_unlock' RETURN
 
             local repo="$EPISODIC_KNOWLEDGE_DIR"
-            # Pull
-            git -C "$repo" pull --rebase --quiet 2>/dev/null || true
-            # Stage + commit + push
-            git -C "$repo" add -A 2>/dev/null
-            if ! git -C "$repo" diff --cached --quiet 2>/dev/null; then
-                git -C "$repo" commit -m "Update knowledge from episodic-memory" 2>/dev/null || true
-                git -C "$repo" push 2>/dev/null || true
+
+            # Recover from any prior failed rebase
+            episodic_knowledge_recover_repo
+
+            # Pull — if this fails, do NOT proceed with commit+push
+            if ! git -C "$repo" pull --rebase --quiet 2>/dev/null; then
+                episodic_log "WARN" "Pull failed during sync (offline or conflict?)"
+                # Abort failed rebase to leave repo clean
+                episodic_knowledge_recover_repo
+                # Still try to commit+push local changes despite failed pull
+                # but only if repo is in a clean state (no conflict markers)
+            fi
+
+            # Safety check: refuse to commit if conflict markers are present
+            if git -C "$repo" diff 2>/dev/null | grep -qE '^[+](<{7}|={7}|>{7})'; then
+                episodic_log "ERROR" "Conflict markers detected — skipping commit to prevent corruption"
+                git -C "$repo" checkout -- . 2>/dev/null || true
+            else
+                # Stage + commit + push
+                git -C "$repo" add -A 2>/dev/null
+                if ! git -C "$repo" diff --cached --quiet 2>/dev/null; then
+                    git -C "$repo" commit -m "Update knowledge from episodic-memory" 2>/dev/null || true
+                    git -C "$repo" push 2>/dev/null || true
+                fi
             fi
             episodic_log "INFO" "Synced knowledge repo"
             ;;
