@@ -160,12 +160,12 @@ if type episodic_knowledge_is_configured &>/dev/null && episodic_knowledge_is_co
 fi
 
 # Output indexed documents for project if available
-doc_count=$(sqlite3 "$EPISODIC_DB" "SELECT count(*) FROM documents WHERE project='$PROJECT';" 2>/dev/null || echo "0")
+doc_count=$(episodic_db_exec "SELECT count(*) FROM documents WHERE project='$PROJECT';" 2>/dev/null || echo "0")
 if [[ "$doc_count" -gt 0 ]]; then
     echo ""
     echo "# Project Documents (${PROJECT})"
     echo ""
-    sqlite3 "$EPISODIC_DB" "
+    episodic_db_exec "
         SELECT file_name, title, file_type, file_size
         FROM documents
         WHERE project='$PROJECT'

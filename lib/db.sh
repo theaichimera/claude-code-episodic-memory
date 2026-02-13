@@ -4,12 +4,41 @@
 _EPISODIC_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_EPISODIC_LIB_DIR/config.sh"
 
+# SQLite busy timeout in milliseconds.
+# Multiple background processes (archive, index, synthesis) write concurrently.
+EPISODIC_BUSY_TIMEOUT="${EPISODIC_BUSY_TIMEOUT:-5000}"
+
+# Execute a SQL statement with busy_timeout set.
+# Usage: episodic_db_exec <sql> [db_path]
+# For queries returning data, pipe through this or use episodic_db_query.
+episodic_db_exec() {
+    local sql="$1"
+    local db="${2:-$EPISODIC_DB}"
+    sqlite3 -cmd ".timeout ${EPISODIC_BUSY_TIMEOUT}" "$db" "${sql}"
+}
+
+# Execute a SQL statement and return JSON output with busy_timeout set.
+# Usage: episodic_db_query_json <sql> [db_path]
+episodic_db_query_json() {
+    local sql="$1"
+    local db="${2:-$EPISODIC_DB}"
+    sqlite3 -json -cmd ".timeout ${EPISODIC_BUSY_TIMEOUT}" "$db" "${sql}"
+}
+
+# Execute a multi-statement SQL block (heredoc) with busy_timeout set.
+# Usage: episodic_db_exec_multi <db_path> <<'SQL' ... SQL
+episodic_db_exec_multi() {
+    local db="${1:-$EPISODIC_DB}"
+    # Prepend .timeout dot-command to the piped SQL (no output, unlike PRAGMA)
+    { echo ".timeout ${EPISODIC_BUSY_TIMEOUT}"; cat; } | sqlite3 "$db"
+}
+
 # Initialize the database schema (idempotent)
 episodic_db_init() {
     local db="${1:-$EPISODIC_DB}"
     mkdir -p "$(dirname "$db")"
 
-    sqlite3 "$db" <<'SQL'
+    episodic_db_exec_multi "$db" <<'SQL'
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
@@ -52,9 +81,9 @@ SQL
     # FTS5 table needs special handling since CREATE VIRTUAL TABLE IF NOT EXISTS
     # is supported in modern SQLite but let's be safe
     local fts_exists
-    fts_exists=$(sqlite3 "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='sessions_fts';")
+    fts_exists=$(episodic_db_exec "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='sessions_fts';" "$db")
     if [[ "$fts_exists" == "0" ]]; then
-        sqlite3 "$db" <<'SQL'
+        episodic_db_exec_multi "$db" <<'SQL'
 CREATE VIRTUAL TABLE sessions_fts USING fts5(
     session_id UNINDEXED,
     project,
@@ -70,7 +99,7 @@ SQL
     fi
 
     # Documents table for knowledge repo file indexing
-    sqlite3 "$db" <<'SQL'
+    episodic_db_exec_multi "$db" <<'SQL'
 CREATE TABLE IF NOT EXISTS documents (
     id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
@@ -101,9 +130,9 @@ SQL
 
     # Documents FTS5 table
     local docs_fts_exists
-    docs_fts_exists=$(sqlite3 "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='documents_fts';")
+    docs_fts_exists=$(episodic_db_exec "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='documents_fts';" "$db")
     if [[ "$docs_fts_exists" == "0" ]]; then
-        sqlite3 "$db" <<'SQL'
+        episodic_db_exec_multi "$db" <<'SQL'
 CREATE VIRTUAL TABLE documents_fts USING fts5(
     doc_id UNINDEXED,
     project,
@@ -128,7 +157,7 @@ episodic_db_insert_session() {
     # Escape single quotes in first_prompt
     first_prompt="${first_prompt//\'/\'\'}"
 
-    sqlite3 "$db" <<SQL
+    episodic_db_exec_multi "$db" <<SQL
 INSERT OR REPLACE INTO sessions (
     id, project, project_path, archive_path, source_path,
     first_prompt, message_count, user_message_count, assistant_message_count,
@@ -179,12 +208,12 @@ episodic_db_insert_summary() {
 
     # Get first_prompt and project from sessions table
     local first_prompt project
-    first_prompt=$(sqlite3 "$db" "SELECT first_prompt FROM sessions WHERE id='$session_id';")
-    project=$(sqlite3 "$db" "SELECT project FROM sessions WHERE id='$session_id';")
+    first_prompt=$(episodic_db_exec "SELECT first_prompt FROM sessions WHERE id='$session_id';" "$db")
+    project=$(episodic_db_exec "SELECT project FROM sessions WHERE id='$session_id';" "$db")
     first_prompt="${first_prompt//\'/\'\'}"
     project="${project//\'/\'\'}"
 
-    sqlite3 "$db" <<SQL
+    episodic_db_exec_multi "$db" <<SQL
 INSERT OR REPLACE INTO summaries (
     session_id, topics, decisions, dead_ends, artifacts_created,
     key_insights, summary, generated_at, model
@@ -210,7 +239,7 @@ episodic_db_update_log() {
     local session_id="$1"
     local status="$2"
 
-    sqlite3 "$db" <<SQL
+    episodic_db_exec_multi "$db" <<SQL
 INSERT OR REPLACE INTO archive_log (session_id, archived_at, status)
 VALUES ('$session_id', datetime('now'), '$status');
 SQL
@@ -225,7 +254,7 @@ episodic_db_search() {
     # Escape single quotes in query
     query="${query//\'/\'\'}"
 
-    sqlite3 -json "$db" <<SQL
+    episodic_db_query_json "
 SELECT
     s.id,
     s.project,
@@ -244,8 +273,7 @@ JOIN sessions s ON s.id = fts.session_id
 JOIN summaries sum ON sum.session_id = fts.session_id
 WHERE sessions_fts MATCH '$query'
 ORDER BY rank
-LIMIT $limit;
-SQL
+LIMIT $limit;" "$db"
 }
 
 # Get recent sessions for a project
@@ -254,7 +282,7 @@ episodic_db_recent() {
     local project="$1"
     local limit="${2:-$EPISODIC_CONTEXT_COUNT}"
 
-    sqlite3 -json "$db" <<SQL
+    episodic_db_query_json "
 SELECT
     s.id,
     s.project,
@@ -270,14 +298,13 @@ FROM sessions s
 JOIN summaries sum ON sum.session_id = s.id
 WHERE s.project = '$project'
 ORDER BY s.created_at DESC
-LIMIT $limit;
-SQL
+LIMIT $limit;" "$db"
 }
 
 # Get session count
 episodic_db_count() {
     local db="$EPISODIC_DB"
-    sqlite3 "$db" "SELECT count(*) FROM sessions;"
+    episodic_db_exec "SELECT count(*) FROM sessions;" "$db"
 }
 
 # Check if a session is already archived
@@ -285,7 +312,7 @@ episodic_db_is_archived() {
     local db="$EPISODIC_DB"
     local session_id="$1"
     local count
-    count=$(sqlite3 "$db" "SELECT count(*) FROM sessions WHERE id='$session_id';")
+    count=$(episodic_db_exec "SELECT count(*) FROM sessions WHERE id='$session_id';" "$db")
     [[ "$count" -gt 0 ]]
 }
 
@@ -298,13 +325,13 @@ episodic_db_sessions_since_synthesis() {
     project="${project//\'/\'\'}"
 
     local last_synth
-    last_synth=$(sqlite3 "$db" "SELECT MAX(synthesized_at) FROM synthesis_log WHERE project='$project';")
+    last_synth=$(episodic_db_exec "SELECT MAX(synthesized_at) FROM synthesis_log WHERE project='$project';" "$db")
 
     if [[ -z "$last_synth" || "$last_synth" == "" ]]; then
         # Never synthesized — count all sessions
-        sqlite3 "$db" "SELECT count(*) FROM sessions WHERE project='$project';"
+        episodic_db_exec "SELECT count(*) FROM sessions WHERE project='$project';" "$db"
     else
-        sqlite3 "$db" "SELECT count(*) FROM sessions WHERE project='$project' AND archived_at > '$last_synth';"
+        episodic_db_exec "SELECT count(*) FROM sessions WHERE project='$project' AND archived_at > '$last_synth';" "$db"
     fi
 }
 
@@ -319,7 +346,7 @@ episodic_db_log_synthesis() {
 
     project="${project//\'/\'\'}"
 
-    sqlite3 "$db" <<SQL
+    episodic_db_exec_multi "$db" <<SQL
 INSERT INTO synthesis_log (project, synthesized_at, session_count, skills_created, skills_updated, model)
 VALUES ('$project', datetime('now'), $session_count, $skills_created, $skills_updated, '$model');
 SQL

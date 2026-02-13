@@ -132,7 +132,7 @@ if [[ "$RETRY_SUMMARIES" == "true" ]]; then
         fi
 
         sleep "$DELAY"
-    done < <(sqlite3 "$EPISODIC_DB" "
+    done < <(episodic_db_exec "
         SELECT s.id, s.source_path, s.project
         FROM sessions s
         LEFT JOIN summaries sum ON sum.session_id = s.id
@@ -260,7 +260,7 @@ if [[ "$RUN_SYNTHESIS" == "true" && "$DRY_RUN" != "true" ]]; then
         else
             echo "  Skipping: $proj ($synth_count sessions, need $EPISODIC_SYNTHESIZE_EVERY)"
         fi
-    done < <(sqlite3 "$EPISODIC_DB" "
+    done < <(episodic_db_exec "
         SELECT project, count(*) as cnt
         FROM sessions
         GROUP BY project

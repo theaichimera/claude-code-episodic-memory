@@ -11,7 +11,7 @@ episodic_db_init_documents() {
     local db="${1:-$EPISODIC_DB}"
     mkdir -p "$(dirname "$db")"
 
-    sqlite3 "$db" <<'SQL'
+    episodic_db_exec_multi "$db" <<'SQL'
 CREATE TABLE IF NOT EXISTS documents (
     id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
@@ -32,9 +32,9 @@ SQL
 
     # FTS5 table needs special handling
     local fts_exists
-    fts_exists=$(sqlite3 "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='documents_fts';")
+    fts_exists=$(episodic_db_exec "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='documents_fts';" "$db")
     if [[ "$fts_exists" == "0" ]]; then
-        sqlite3 "$db" <<'SQL'
+        episodic_db_exec_multi "$db" <<'SQL'
 CREATE VIRTUAL TABLE documents_fts USING fts5(
     doc_id UNINDEXED,
     project,
@@ -159,7 +159,7 @@ episodic_index_file() {
 
     # Check if already indexed with same hash
     local existing_hash
-    existing_hash=$(sqlite3 "$db" "SELECT content_hash FROM documents WHERE id='${doc_id//\'/\'\'}';" 2>/dev/null || true)
+    existing_hash=$(episodic_db_exec "SELECT content_hash FROM documents WHERE id='${doc_id//\'/\'\'}';" "$db" 2>/dev/null || true)
     if [[ "$existing_hash" == "$content_hash" ]]; then
         episodic_log "INFO" "Skipping unchanged file: $file_path"
         return 0
@@ -221,7 +221,7 @@ episodic_index_file() {
     local safe_text="${extracted_text//\'/\'\'}"
 
     # Insert/replace into documents table
-    sqlite3 "$db" <<SQL
+    episodic_db_exec_multi "$db" <<SQL
 INSERT OR REPLACE INTO documents (
     id, project, file_path, file_name, title, file_type,
     file_size, content_hash, extracted_text, extraction_method, indexed_at
@@ -301,7 +301,7 @@ episodic_index_search() {
     # Escape single quotes in query
     query="${query//\'/\'\'}"
 
-    sqlite3 -json "$db" <<SQL
+    episodic_db_query_json "
 SELECT d.id, d.project, d.file_path, d.file_name, d.title, d.file_type,
        d.indexed_at, d.file_size, d.extraction_method,
        snippet(documents_fts, 4, '>>>', '<<<', '...', 30) as snippet, rank
@@ -309,8 +309,7 @@ FROM documents_fts fts
 JOIN documents d ON d.id = fts.doc_id
 WHERE documents_fts MATCH '$query'
 ORDER BY rank
-LIMIT $limit;
-SQL
+LIMIT $limit;" "$db"
 }
 
 # Return JSON with index stats
@@ -319,16 +318,16 @@ episodic_index_stats() {
     local db="${EPISODIC_DB}"
 
     local total
-    total=$(sqlite3 "$db" "SELECT count(*) FROM documents;")
+    total=$(episodic_db_exec "SELECT count(*) FROM documents;" "$db")
 
     local by_project
-    by_project=$(sqlite3 -json "$db" "SELECT project, count(*) as count FROM documents GROUP BY project;")
+    by_project=$(episodic_db_query_json "SELECT project, count(*) as count FROM documents GROUP BY project;" "$db")
 
     local by_type
-    by_type=$(sqlite3 -json "$db" "SELECT file_type, count(*) as count FROM documents GROUP BY file_type;")
+    by_type=$(episodic_db_query_json "SELECT file_type, count(*) as count FROM documents GROUP BY file_type;" "$db")
 
     local total_size
-    total_size=$(sqlite3 "$db" "SELECT coalesce(sum(file_size), 0) FROM documents;")
+    total_size=$(episodic_db_exec "SELECT coalesce(sum(file_size), 0) FROM documents;" "$db")
 
     jq -n \
         --argjson total "$total" \
@@ -349,13 +348,13 @@ episodic_index_cleanup() {
     local safe_project="${project//\'/\'\'}"
 
     local doc_ids_paths
-    doc_ids_paths=$(sqlite3 "$db" "SELECT id, file_path FROM documents WHERE project='$safe_project';")
+    doc_ids_paths=$(episodic_db_exec "SELECT id, file_path FROM documents WHERE project='$safe_project';" "$db")
 
     while IFS='|' read -r doc_id file_path; do
         [[ -z "$doc_id" ]] && continue
         if [[ ! -f "$file_path" ]]; then
             local safe_id="${doc_id//\'/\'\'}"
-            sqlite3 "$db" <<SQL
+            episodic_db_exec_multi "$db" <<SQL
 DELETE FROM documents WHERE id = '$safe_id';
 DELETE FROM documents_fts WHERE doc_id = '$safe_id';
 SQL
