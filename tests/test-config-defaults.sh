@@ -19,21 +19,21 @@ trap cleanup EXIT
 
 echo "=== test-config-defaults ==="
 
-# Test 1: EPISODIC_OPUS_MODEL should be opus 4.6
+# Test 1: EPISODIC_OPUS_MODEL should be opus 4.5
 echo -n "  1. EPISODIC_OPUS_MODEL default... "
-if [[ "$EPISODIC_OPUS_MODEL" == "claude-opus-4-6" ]]; then
+if [[ "$EPISODIC_OPUS_MODEL" == "claude-opus-4-5-20251101" ]]; then
     echo "PASS ($EPISODIC_OPUS_MODEL)"
 else
-    echo "FAIL: expected claude-opus-4-6, got $EPISODIC_OPUS_MODEL"
+    echo "FAIL: expected claude-opus-4-5-20251101, got $EPISODIC_OPUS_MODEL"
     exit 1
 fi
 
-# Test 2: EPISODIC_SUMMARY_MODEL should be haiku 4.5
+# Test 2: EPISODIC_SUMMARY_MODEL should be opus 4.5
 echo -n "  2. EPISODIC_SUMMARY_MODEL default... "
-if [[ "$EPISODIC_SUMMARY_MODEL" == "claude-haiku-4-5-20251001" ]]; then
+if [[ "$EPISODIC_SUMMARY_MODEL" == "claude-opus-4-5-20251101" ]]; then
     echo "PASS ($EPISODIC_SUMMARY_MODEL)"
 else
-    echo "FAIL: expected claude-haiku-4-5-20251001, got $EPISODIC_SUMMARY_MODEL"
+    echo "FAIL: expected claude-opus-4-5-20251101, got $EPISODIC_SUMMARY_MODEL"
     exit 1
 fi
 

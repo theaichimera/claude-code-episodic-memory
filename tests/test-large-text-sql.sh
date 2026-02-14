@@ -110,13 +110,15 @@ assert_eq "Quoted text stored with correct length" "$expected_len" "$retrieved_l
 echo ""
 echo "Test 4: No temp files leaked"
 # Count temp files before and after an operation
-before=$(ls /tmp/tmp.* 2>/dev/null | wc -l || echo 0)
+before=$(find /tmp -maxdepth 1 -name 'tmp.*' 2>/dev/null | wc -l | tr -d '[:space:]')
 sqlite3 "$EPISODIC_DB" "INSERT INTO sessions (id, project, created_at, first_prompt) VALUES ('big3', 'testproj', datetime('now'), 'temp test');"
 small_json='{"topics":["t"],"decisions":[],"dead_ends":[],"artifacts_created":[],"key_insights":[],"summary":"small"}'
 episodic_db_insert_summary "big3" "$small_json" "test-model"
-after=$(ls /tmp/tmp.* 2>/dev/null | wc -l || echo 0)
+after=$(find /tmp -maxdepth 1 -name 'tmp.*' 2>/dev/null | wc -l | tr -d '[:space:]')
 # Should not have accumulated temp files (trap RETURN cleans them)
-assert_eq "No temp file leak" "true" "$([[ "$after" -le "$((before + 0))" ]] && echo true || echo false)"
+before=${before:-0}
+after=${after:-0}
+assert_eq "No temp file leak" "true" "$([[ $after -le $before ]] && echo true || echo false)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
