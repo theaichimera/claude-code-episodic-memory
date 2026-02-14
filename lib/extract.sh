@@ -20,7 +20,7 @@ episodic_extract() {
     # Write to temp file to avoid SIGPIPE issues with large outputs
     local tmpfile
     tmpfile=$(mktemp)
-    trap "rm -f '$tmpfile'" RETURN
+    trap 'rm -f "$tmpfile"' RETURN
 
     jq -r '
         select(.type == "user" or .type == "assistant") |

@@ -108,11 +108,13 @@ episodic_knowledge_ensure_project() {
         return 1
     fi
 
+    # Sanitize project name to prevent path traversal
+    project=$(episodic_sanitize_name "$project")
     local project_dir="$EPISODIC_KNOWLEDGE_DIR/$project"
     local skills_dir="$project_dir/skills"
 
     if [[ ! -d "$skills_dir" ]]; then
-        mkdir -p "$skills_dir"
+        mkdir -p -m 700 "$skills_dir"
         episodic_log "INFO" "Created project directory: $project_dir/skills/"
     fi
 
@@ -131,9 +133,18 @@ episodic_knowledge_write_skill() {
         return 1
     fi
 
+    # Sanitize skill name to prevent path traversal
+    skill_name=$(episodic_sanitize_name "$skill_name")
+
     local project_dir
     project_dir=$(episodic_knowledge_ensure_project "$project")
     local skill_file="$project_dir/skills/${skill_name}.md"
+
+    # Refuse to write to symlinks
+    if [[ -L "$skill_file" ]]; then
+        episodic_log "ERROR" "Refusing to write to symlink: $skill_file"
+        return 1
+    fi
 
     printf '%s\n' "$content" > "$skill_file"
     episodic_log "INFO" "Wrote skill: $skill_file"
@@ -144,6 +155,10 @@ episodic_knowledge_write_skill() {
 episodic_knowledge_read_skill() {
     local project="$1"
     local skill_name="$2"
+
+    # Sanitize to prevent path traversal
+    project=$(episodic_sanitize_name "$project")
+    skill_name=$(episodic_sanitize_name "$skill_name")
 
     local skill_file="$EPISODIC_KNOWLEDGE_DIR/$project/skills/${skill_name}.md"
 

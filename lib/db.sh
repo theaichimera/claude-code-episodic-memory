@@ -36,7 +36,12 @@ episodic_fts5_escape() {
         token="${token//\"/\"\"}"
         result="${result:+$result }\"$token\""
     done
-    eval "$old_glob" 2>/dev/null || set +f  # restore
+    # Restore glob setting without eval
+    if [[ "$old_glob" == *"-s noglob"* ]]; then
+        set -f
+    else
+        set +f
+    fi
     printf '%s' "$result"
 }
 
@@ -206,17 +211,26 @@ episodic_db_insert_session() {
     [[ "$assistant_count" =~ ^[0-9]+$ ]] || assistant_count=0
     [[ "$duration" =~ ^[0-9]+$ ]] || duration=0
 
-    episodic_db_exec_multi "$db" <<SQL
-INSERT OR REPLACE INTO sessions (
-    id, project, project_path, archive_path, source_path,
-    first_prompt, message_count, user_message_count, assistant_message_count,
-    git_branch, created_at, modified_at, archived_at, duration_minutes
-) VALUES (
-    '$id', '$project', '$project_path', '$archive_path', '$source_path',
-    '$first_prompt', $message_count, $user_count, $assistant_count,
-    '$git_branch', '$created_at', '$modified_at', datetime('now'), $duration
-);
-SQL
+    # Use printf to temp file to avoid shell expansion in heredocs.
+    # Values are SQL-escaped but could contain $() or backticks from user content.
+    local sql_file
+    sql_file=$(mktemp)
+
+    {
+        printf ".timeout ${EPISODIC_BUSY_TIMEOUT}\n"
+        printf "INSERT OR REPLACE INTO sessions (\n"
+        printf "    id, project, project_path, archive_path, source_path,\n"
+        printf "    first_prompt, message_count, user_message_count, assistant_message_count,\n"
+        printf "    git_branch, created_at, modified_at, archived_at, duration_minutes\n"
+        printf ") VALUES (\n"
+        printf "    '%s', '%s', '%s', '%s', '%s',\n" "$id" "$project" "$project_path" "$archive_path" "$source_path"
+        printf "    '%s', %s, %s, %s,\n" "$first_prompt" "$message_count" "$user_count" "$assistant_count"
+        printf "    '%s', '%s', '%s', datetime('now'), %s\n" "$git_branch" "$created_at" "$modified_at" "$duration"
+        printf ");\n"
+    } > "$sql_file"
+
+    sqlite3 "$db" < "$sql_file"
+    rm -f "$sql_file"
 }
 
 # Insert a summary record and update FTS
@@ -305,10 +319,7 @@ episodic_db_update_log() {
     session_id=$(episodic_sql_escape "$session_id")
     status=$(episodic_sql_escape "$status")
 
-    episodic_db_exec_multi "$db" <<SQL
-INSERT OR REPLACE INTO archive_log (session_id, archived_at, status)
-VALUES ('$session_id', datetime('now'), '$status');
-SQL
+    episodic_db_exec "INSERT OR REPLACE INTO archive_log (session_id, archived_at, status) VALUES ('$session_id', datetime('now'), '$status');" "$db"
 }
 
 # Search sessions using FTS5
@@ -316,6 +327,9 @@ episodic_db_search() {
     local db="$EPISODIC_DB"
     local query="$1"
     local limit="${2:-10}"
+
+    # Validate limit as integer
+    [[ "$limit" =~ ^[0-9]+$ ]] || limit=10
 
     # FTS5-escape first (wraps in double quotes), then SQL-escape (doubles single quotes)
     query=$(episodic_fts5_escape "$query")
@@ -350,6 +364,8 @@ episodic_db_recent() {
     local limit="${2:-$EPISODIC_CONTEXT_COUNT}"
 
     project=$(episodic_sql_escape "$project")
+    # Validate limit as integer
+    [[ "$limit" =~ ^[0-9]+$ ]] || limit=3
 
     episodic_db_query_json "
 SELECT
@@ -403,6 +419,8 @@ episodic_db_sessions_since_synthesis() {
         # Never synthesized — count all sessions
         episodic_db_exec "SELECT count(*) FROM sessions WHERE project='$project';" "$db"
     else
+        # Re-escape DB-derived value to prevent second-order injection
+        last_synth=$(episodic_sql_escape "$last_synth")
         episodic_db_exec "SELECT count(*) FROM sessions WHERE project='$project' AND archived_at > '$last_synth';" "$db"
     fi
 }
@@ -417,9 +435,12 @@ episodic_db_log_synthesis() {
     local model="${5:-$EPISODIC_OPUS_MODEL}"
 
     project=$(episodic_sql_escape "$project")
+    model=$(episodic_sql_escape "$model")
 
-    episodic_db_exec_multi "$db" <<SQL
-INSERT INTO synthesis_log (project, synthesized_at, session_count, skills_created, skills_updated, model)
-VALUES ('$project', datetime('now'), $session_count, $skills_created, $skills_updated, '$model');
-SQL
+    # Validate numeric fields
+    [[ "$session_count" =~ ^[0-9]+$ ]] || session_count=0
+    [[ "$skills_created" =~ ^[0-9]+$ ]] || skills_created=0
+    [[ "$skills_updated" =~ ^[0-9]+$ ]] || skills_updated=0
+
+    episodic_db_exec "INSERT INTO synthesis_log (project, synthesized_at, session_count, skills_created, skills_updated, model) VALUES ('$project', datetime('now'), $session_count, $skills_created, $skills_updated, '$model');" "$db"
 }

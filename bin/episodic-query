@@ -98,6 +98,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --limit)
             LIMIT="$2"
+            [[ "$LIMIT" =~ ^[0-9]+$ ]] || { echo "ERROR: --limit must be a number" >&2; exit 1; }
             shift 2
             ;;
         --json)

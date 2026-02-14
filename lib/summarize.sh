@@ -167,8 +167,7 @@ Rules:
     if echo "$json_content" | jq -e '.topics and .summary' >/dev/null 2>&1; then
         echo "$json_content"
     else
-        episodic_log "ERROR" "Model returned invalid summary JSON"
-        episodic_log "DEBUG" "Raw content (first 500): ${content:0:500}"
+        episodic_log "ERROR" "Model returned invalid summary JSON (${#content} chars)"
         return 1
     fi
 }

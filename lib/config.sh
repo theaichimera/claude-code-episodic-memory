@@ -63,6 +63,38 @@ episodic_require_api_key() {
     fi
 }
 
+# Sanitize a name for safe use in file paths.
+# Strips path separators, parent-dir references, leading dots, and non-safe chars.
+# Only allows: alphanumeric, hyphens, underscores, dots (not leading).
+# Usage: safe=$(episodic_sanitize_name "$untrusted_name")
+episodic_sanitize_name() {
+    local name="$1"
+    # Remove path separators and parent directory references
+    name="${name//\//}"
+    name="${name//\.\./}"
+    # Remove leading dots (hidden files)
+    name="${name#.}"
+    # Strip any remaining characters that aren't alphanumeric, hyphen, underscore, or dot
+    name=$(printf '%s' "$name" | tr -cd 'a-zA-Z0-9._-')
+    # Ensure non-empty
+    if [[ -z "$name" ]]; then
+        name="unnamed"
+    fi
+    printf '%s' "$name"
+}
+
+# Validate a string is a positive integer, return default if not.
+# Usage: safe_int=$(episodic_validate_int "$value" "$default")
+episodic_validate_int() {
+    local value="$1"
+    local default="${2:-0}"
+    if [[ "$value" =~ ^[0-9]+$ ]]; then
+        printf '%s' "$value"
+    else
+        printf '%s' "$default"
+    fi
+}
+
 # Log a message with timestamp
 episodic_log() {
     local level="$1"; shift
@@ -133,7 +165,18 @@ episodic_project_from_cwd() {
 EPISODIC_KNOWLEDGE_REPO="${EPISODIC_KNOWLEDGE_REPO:-}"
 EPISODIC_KNOWLEDGE_DIR="${EPISODIC_KNOWLEDGE_DIR:-$HOME/.claude/knowledge}"
 
-# Load local overrides
+# Load local overrides from .env (safe key=value parsing only, no code execution)
 if [[ -f "$EPISODIC_ROOT/.env" ]]; then
-    source "$EPISODIC_ROOT/.env"
+    while IFS='=' read -r key value; do
+        # Skip comments and blank lines
+        [[ -z "$key" || "$key" == \#* ]] && continue
+        # Only allow known EPISODIC_ config variable names
+        [[ "$key" =~ ^EPISODIC_[A-Z_]+$ ]] || continue
+        # Strip surrounding quotes from value
+        value="${value#\"}"
+        value="${value%\"}"
+        value="${value#\'}"
+        value="${value%\'}"
+        export "$key"="$value"
+    done < "$EPISODIC_ROOT/.env"
 fi

@@ -16,12 +16,24 @@ episodic_knowledge_init "$REPO_URL"
 
 # Save repo URL to .env for persistence across sessions
 ENV_FILE="$EPISODIC_ROOT/.env"
+
+# Validate repo URL: reject if it contains characters that could inject into .env
+# Allow: alphanumeric, :, /, ., -, _, @, ~
+if [[ "$REPO_URL" =~ [^a-zA-Z0-9:/.@~_-] ]]; then
+    echo "WARNING: Repo URL contains unusual characters. Sanitizing for .env safety." >&2
+    # Strip any characters that could be shell metacharacters
+    REPO_URL=$(printf '%s' "$REPO_URL" | tr -cd 'a-zA-Z0-9:/.@~_-')
+fi
+
 if [[ -f "$ENV_FILE" ]] && grep -q "EPISODIC_KNOWLEDGE_REPO" "$ENV_FILE" 2>/dev/null; then
-    # Update existing line (cross-platform: write to temp file and move)
+    # Rebuild .env without the old EPISODIC_KNOWLEDGE_REPO line, then append new
     local_tmp=$(mktemp)
-    sed "s|^EPISODIC_KNOWLEDGE_REPO=.*|EPISODIC_KNOWLEDGE_REPO=\"$REPO_URL\"|" "$ENV_FILE" > "$local_tmp" && mv "$local_tmp" "$ENV_FILE"
+    trap 'rm -f "$local_tmp"' EXIT
+    grep -v "^EPISODIC_KNOWLEDGE_REPO=" "$ENV_FILE" > "$local_tmp" || true
+    printf 'EPISODIC_KNOWLEDGE_REPO="%s"\n' "$REPO_URL" >> "$local_tmp"
+    mv "$local_tmp" "$ENV_FILE"
 else
-    echo "EPISODIC_KNOWLEDGE_REPO=\"$REPO_URL\"" >> "$ENV_FILE"
+    printf 'EPISODIC_KNOWLEDGE_REPO="%s"\n' "$REPO_URL" >> "$ENV_FILE"
 fi
 
 # Push initial commit if remote is empty

@@ -62,9 +62,16 @@ episodic_synthesize_write_skills() {
         body=$(echo "$skills_json" | jq -r ".[$i].body")
         sessions_csv=$(echo "$skills_json" | jq -r ".[$i].sessions // [] | join(\", \")")
 
+        # Sanitize skill name from LLM output to prevent path traversal
+        name=$(episodic_sanitize_name "$name")
+        if [[ -z "$name" || "$name" == "unnamed" ]]; then
+            episodic_log "WARN" "Skipping skill with invalid name"
+            continue
+        fi
+
         if [[ "$action" == "delete" ]]; then
             local skill_file="$EPISODIC_KNOWLEDGE_DIR/$project/skills/${name}.md"
-            if [[ -f "$skill_file" ]]; then
+            if [[ -f "$skill_file" && ! -L "$skill_file" ]]; then
                 rm -f "$skill_file"
                 episodic_log "INFO" "Deleted skill: $name (contradicted by new evidence)"
                 deleted=$((deleted + 1))
@@ -90,6 +97,10 @@ episodic_synthesize_load_transcripts() {
     local project="$1"
     local limit="${2:-$EPISODIC_SYNTHESIZE_TRANSCRIPT_COUNT}"
     local max_per="${EPISODIC_SYNTHESIZE_TRANSCRIPT_CHARS:-30000}"
+
+    # Validate numeric params
+    [[ "$limit" =~ ^[0-9]+$ ]] || limit=5
+    [[ "$max_per" =~ ^[0-9]+$ ]] || max_per=30000
 
     local transcripts=""
     local loaded=0
@@ -451,8 +462,7 @@ Generate the JSON array of skill actions. Remember: quality over quantity. Empty
 
     # Validate JSON array
     if ! echo "$json_content" | jq -e 'type == "array"' >/dev/null 2>&1; then
-        episodic_log "ERROR" "Opus returned invalid skills JSON"
-        episodic_log "DEBUG" "Raw content (first 500): ${content:0:500}"
+        episodic_log "ERROR" "Opus returned invalid skills JSON (${#content} chars)"
         return 1
     fi
 

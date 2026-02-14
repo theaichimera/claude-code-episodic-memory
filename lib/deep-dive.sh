@@ -282,23 +282,33 @@ episodic_deep_dive_write() {
     local project_path="$3"
     local model="${4:-$EPISODIC_DEEP_DIVE_MODEL}"
 
+    # Sanitize project name to prevent path traversal
+    project=$(episodic_sanitize_name "$project")
+
     local dir="$EPISODIC_KNOWLEDGE_DIR/$project"
-    mkdir -p "$dir"
+    mkdir -p -m 700 "$dir"
 
     local generated
     generated=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local target="$dir/deep-dive.md"
 
-    cat > "$dir/deep-dive.md" <<EOF
----
-type: deep-dive
-project: ${project}
-generated: ${generated}
-model: ${model}
-project_path: ${project_path}
----
+    # Refuse to write to symlinks
+    if [[ -L "$target" ]]; then
+        episodic_log "ERROR" "Refusing to write to symlink: $target"
+        return 1
+    fi
 
-${content}
-EOF
+    # Use printf to avoid shell expansion of $content (which comes from LLM API)
+    {
+        printf '%s\n' "---"
+        printf 'type: deep-dive\n'
+        printf 'project: %s\n' "$project"
+        printf 'generated: %s\n' "$generated"
+        printf 'model: %s\n' "$model"
+        printf 'project_path: %s\n' "$project_path"
+        printf '%s\n\n' "---"
+        printf '%s\n' "$content"
+    } > "$target"
 
     episodic_log "INFO" "Wrote deep-dive for $project to $dir/deep-dive.md"
 }

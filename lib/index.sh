@@ -201,8 +201,8 @@ episodic_index_file() {
         printf "    file_size, content_hash, extracted_text, extraction_method, indexed_at\n"
         printf ") VALUES (\n"
         printf "    '%s', '%s', '%s', '%s',\n" "$safe_id" "$safe_project" "$safe_file_path" "$safe_file_name"
-        printf "    '%s', '%s', %s, '%s',\n" "$safe_title" "$file_type" "$file_size" "$content_hash"
-        printf "    '%s', '%s', datetime('now')\n" "$(episodic_sql_escape "$extracted_text")" "$extraction_method"
+        printf "    '%s', '%s', %s, '%s',\n" "$safe_title" "$(episodic_sql_escape "$file_type")" "$(episodic_validate_int "$file_size" 0)" "$(episodic_sql_escape "$content_hash")"
+        printf "    '%s', '%s', datetime('now')\n" "$(episodic_sql_escape "$extracted_text")" "$(episodic_sql_escape "$extraction_method")"
         printf ");\n\n"
         printf "DELETE FROM documents_fts WHERE doc_id = '%s';\n" "$safe_id"
         printf "INSERT INTO documents_fts (doc_id, project, file_name, title, extracted_text)\n"
@@ -274,6 +274,9 @@ episodic_index_search() {
     local query="$1"
     local limit="${2:-10}"
     local db="${EPISODIC_DB}"
+
+    # Validate limit as integer
+    [[ "$limit" =~ ^[0-9]+$ ]] || limit=10
 
     query=$(episodic_fts5_escape "$query")
     query=$(episodic_sql_escape "$query")
