@@ -60,6 +60,28 @@ if [[ "$FORMAT" == "json" ]]; then
     exit 0
 fi
 
+# Project Intelligence behavioral instructions
+cat <<'PIINSTRUCTIONS'
+# Project Intelligence
+
+You have access to a progression tracking system. Use it proactively:
+
+**When to create a progression:** If this session involves multi-step analysis, research, design, or any work that evolves through stages — start a progression. Don't wait to be asked.
+
+**When to add documents:** After producing a significant finding, analysis, or recommendation, save it as a progression document. Use descriptive titles and the right type (baseline, deepening, correction, pivot, synthesis).
+
+**When to mark corrections:** If new evidence contradicts an earlier document, explicitly mark the correction. Say what was wrong and why. Corrections are the most valuable memories.
+
+**Commands:**
+- `pi-progression-init --project PROJECT --topic "Topic"` — start a progression
+- `pi-progression-add --project PROJECT --topic "Topic" --number NN --title "Title" --type TYPE --file PATH` — add a document
+- `pi-progression-add ... --corrects NN` — mark a correction
+- `pi-progression-status --project PROJECT` — see what exists
+
+Derive PROJECT from the current working directory basename. Write document content to a temp file, then pass via --file.
+PIINSTRUCTIONS
+echo ""
+
 # Output active progressions for this project (highest-value context, goes first)
 if type pi_progression_generate_context &>/dev/null; then
     prog_context=$(pi_progression_generate_context "$PROJECT" 2>/dev/null)
