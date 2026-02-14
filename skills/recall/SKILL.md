@@ -17,13 +17,13 @@ The user invokes `/recall <search terms>` to find relevant past sessions.
 When the user invokes `/recall`, run the episodic-query CLI tool with their search terms:
 
 ```bash
-~/.claude/episodic-memory/bin/episodic-query "$ARGUMENTS"
+${CLAUDE_PLUGIN_ROOT:-~/.claude/project-intelligence}/bin/pi-query "$ARGUMENTS"
 ```
 
 If no arguments are provided, show recent sessions:
 
 ```bash
-~/.claude/episodic-memory/bin/episodic-query --recent 5
+${CLAUDE_PLUGIN_ROOT:-~/.claude/project-intelligence}/bin/pi-query --recent 5
 ```
 
 Present the results to the user in a clean format, highlighting:
@@ -32,12 +32,12 @@ Present the results to the user in a clean format, highlighting:
 - Dead ends to avoid repeating
 - Insights that might be relevant now
 
-If the user wants more detail about a specific session, the raw JSONL archive can be found at `~/.claude/episodic-memory/archives/<project>/<session-id>.jsonl`.
+If the user wants more detail about a specific session, the raw JSONL archive can be found at `${CLAUDE_PLUGIN_ROOT:-~/.claude/project-intelligence}/archives/<project>/<session-id>.jsonl`.
 
 The search also covers indexed documents from the knowledge repo. Use `--docs-only` to search only documents:
 
 ```bash
-~/.claude/episodic-memory/bin/episodic-query --docs-only "$ARGUMENTS"
+${CLAUDE_PLUGIN_ROOT:-~/.claude/project-intelligence}/bin/pi-query --docs-only "$ARGUMENTS"
 ```
 
 ## Examples

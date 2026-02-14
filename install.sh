@@ -7,7 +7,7 @@ SETTINGS_FILE="$HOME/.claude/settings.json"
 SKILLS_DIR="$HOME/.claude/skills"
 
 echo "╔══════════════════════════════════════════════╗"
-echo "║  Installing claude-episodic-memory           ║"
+echo "║  Installing Project Intelligence             ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
 
@@ -140,6 +140,22 @@ if [[ -L "$DEEPDIVE_LINK" || -d "$DEEPDIVE_LINK" ]]; then
 fi
 ln -s "$EPISODIC_ROOT/skills/deep-dive" "$DEEPDIVE_LINK"
 echo "  ✓ /deep-dive skill installed"
+
+# Install /progress
+PROGRESS_LINK="$SKILLS_DIR/progress"
+if [[ -L "$PROGRESS_LINK" || -d "$PROGRESS_LINK" ]]; then
+    rm -rf "$PROGRESS_LINK"
+fi
+ln -s "$EPISODIC_ROOT/skills/progress" "$PROGRESS_LINK"
+echo "  ✓ /progress skill installed"
+
+# Install /reflect
+REFLECT_LINK="$SKILLS_DIR/reflect"
+if [[ -L "$REFLECT_LINK" || -d "$REFLECT_LINK" ]]; then
+    rm -rf "$REFLECT_LINK"
+fi
+ln -s "$EPISODIC_ROOT/skills/reflect" "$REFLECT_LINK"
+echo "  ✓ /reflect skill installed"
 
 # 6. Knowledge repo setup (optional)
 echo ""

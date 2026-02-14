@@ -22,7 +22,7 @@ When the user invokes `/reflect`:
 
 2. **Find the progression.** Use the topic argument or list active progressions:
    ```bash
-   ~/.claude/episodic-memory/bin/pi-progression-status --project PROJECT [--topic "TOPIC"]
+   ${CLAUDE_PLUGIN_ROOT:-~/.claude/project-intelligence}/bin/pi-progression-status --project PROJECT [--topic "TOPIC"]
    ```
 
 3. **Read all documents in the progression.** The progression directory is at:
