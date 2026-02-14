@@ -32,6 +32,7 @@ archive_session() {
     local jsonl_path="$1"
     local skip_summary="${2:-false}"
     local dry_run="${3:-false}"
+    local project_override="${4:-}"
 
     local session_file
     session_file=$(basename "$jsonl_path" .jsonl)
@@ -69,9 +70,13 @@ archive_session() {
         session_id="$session_file"
     fi
 
-    # Derive project name
+    # Derive project name (prefer explicit override, e.g. from CWD)
     local project project_path
-    project=$(episodic_project_from_path "$project_dir")
+    if [[ -n "$project_override" ]]; then
+        project="$project_override"
+    else
+        project=$(episodic_project_from_path "$project_dir")
+    fi
     project_path=$(episodic_project_path_from_dir "$project_dir")
 
     # Calculate duration
@@ -154,13 +159,15 @@ archive_session() {
         cp "$jsonl_path" "$archive_file"
     fi
 
-    # Insert session into database
+    # Insert session into database with 'pending' status.
+    # The status only advances to 'complete' after a successful summary,
+    # so sessions with failed summaries will be retried on next archive run.
     episodic_db_insert_session \
         "$session_id" "$project" "$project_path" "$archive_file" "$jsonl_path" \
         "$first_prompt" "$message_count" "$user_count" "$assistant_count" \
         "$git_branch" "$created_at" "$modified_at" "$duration"
 
-    episodic_db_update_log "$session_id" "archived"
+    episodic_db_update_log "$session_id" "pending"
 
     # Generate summary unless skipped
     if [[ "$skip_summary" != "true" ]]; then
@@ -183,6 +190,8 @@ archive_session() {
             episodic_db_update_log "$session_id" "too_short"
             episodic_log "INFO" "Session $session_id too short for summary"
         fi
+    else
+        episodic_db_update_log "$session_id" "no_summary"
     fi
 
     # Trigger auto-synthesis check
@@ -257,7 +266,9 @@ case "$MODE" in
             exit 0
         fi
 
-        archive_session "$LATEST" "$SKIP_SUMMARY" "$DRY_RUN"
+        # Use basename of CWD as project name (reliable, avoids lossy encoding)
+        CWD_PROJECT=$(basename "$CWD")
+        archive_session "$LATEST" "$SKIP_SUMMARY" "$DRY_RUN" "$CWD_PROJECT"
         ;;
 
     all)

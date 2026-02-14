@@ -6,47 +6,10 @@ source "$_EPISODIC_LIB_DIR/config.sh"
 source "$_EPISODIC_LIB_DIR/db.sh"
 
 # Initialize document tables (idempotent)
-# Called from here and also from db.sh's episodic_db_init
+# Delegates to episodic_db_init in db.sh which owns all schema definitions.
 episodic_db_init_documents() {
     local db="${1:-$EPISODIC_DB}"
-    mkdir -p "$(dirname "$db")"
-
-    sqlite3 "$db" <<'SQL'
-CREATE TABLE IF NOT EXISTS documents (
-    id TEXT PRIMARY KEY,
-    project TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    file_name TEXT NOT NULL,
-    title TEXT,
-    file_type TEXT,
-    file_size INTEGER,
-    content_hash TEXT,
-    extracted_text TEXT,
-    extraction_method TEXT,
-    indexed_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_documents_project ON documents(project);
-CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_hash);
-SQL
-
-    # FTS5 table needs special handling
-    local fts_exists
-    fts_exists=$(sqlite3 "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='documents_fts';")
-    if [[ "$fts_exists" == "0" ]]; then
-        sqlite3 "$db" <<'SQL'
-CREATE VIRTUAL TABLE documents_fts USING fts5(
-    doc_id UNINDEXED,
-    project,
-    file_name,
-    title,
-    extracted_text,
-    tokenize='porter unicode61'
-);
-SQL
-    fi
-
-    episodic_log "INFO" "Document tables initialized at $db"
+    episodic_db_init "$db"
 }
 
 # Extract text content from a file based on its extension
@@ -126,7 +89,11 @@ episodic_index_extract_text() {
 # Usage: episodic_index_content_hash <file_path>
 episodic_index_content_hash() {
     local file_path="$1"
-    shasum -a 256 < "$file_path" | cut -d' ' -f1
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum < "$file_path" | cut -d' ' -f1
+    else
+        shasum -a 256 < "$file_path" | cut -d' ' -f1
+    fi
 }
 
 # Index a single file into the documents table + FTS5
@@ -159,7 +126,7 @@ episodic_index_file() {
 
     # Check if already indexed with same hash
     local existing_hash
-    existing_hash=$(sqlite3 "$db" "SELECT content_hash FROM documents WHERE id='${doc_id//\'/\'\'}';" 2>/dev/null || true)
+    existing_hash=$(episodic_db_exec "SELECT content_hash FROM documents WHERE id='$(episodic_sql_escape "$doc_id")';" "$db" 2>/dev/null || true)
     if [[ "$existing_hash" == "$content_hash" ]]; then
         episodic_log "INFO" "Skipping unchanged file: $file_path"
         return 0
@@ -212,29 +179,39 @@ episodic_index_file() {
         csv) extraction_method="csv-head" ;;
     esac
 
-    # Escape single quotes for SQL
-    local safe_id="${doc_id//\'/\'\'}"
-    local safe_project="${project//\'/\'\'}"
-    local safe_file_path="${file_path//\'/\'\'}"
-    local safe_file_name="${file_name//\'/\'\'}"
-    local safe_title="${title//\'/\'\'}"
-    local safe_text="${extracted_text//\'/\'\'}"
+    local safe_id safe_project safe_file_path safe_file_name safe_title
+    safe_id=$(episodic_sql_escape "$doc_id")
+    safe_project=$(episodic_sql_escape "$project")
+    safe_file_path=$(episodic_sql_escape "$file_path")
+    safe_file_name=$(episodic_sql_escape "$file_name")
+    safe_title=$(episodic_sql_escape "$title")
 
-    # Insert/replace into documents table
-    sqlite3 "$db" <<SQL
-INSERT OR REPLACE INTO documents (
-    id, project, file_path, file_name, title, file_type,
-    file_size, content_hash, extracted_text, extraction_method, indexed_at
-) VALUES (
-    '$safe_id', '$safe_project', '$safe_file_path', '$safe_file_name',
-    '$safe_title', '$file_type', $file_size, '$content_hash',
-    '$safe_text', '$extraction_method', datetime('now')
-);
+    # Write SQL to temp file to avoid bash variable size limits on large text.
+    # The extracted_text can be up to 100KB; heredoc expansion through bash
+    # is fragile at that size. Writing to a file bypasses this.
+    local sql_file
+    sql_file=$(mktemp)
+    trap 'rm -f "$sql_file"' RETURN
 
-DELETE FROM documents_fts WHERE doc_id = '$safe_id';
-INSERT INTO documents_fts (doc_id, project, file_name, title, extracted_text)
-VALUES ('$safe_id', '$safe_project', '$safe_file_name', '$safe_title', '$safe_text');
-SQL
+    {
+        printf ".timeout ${EPISODIC_BUSY_TIMEOUT}\n"
+        printf "BEGIN;\n"
+        printf "INSERT OR REPLACE INTO documents (\n"
+        printf "    id, project, file_path, file_name, title, file_type,\n"
+        printf "    file_size, content_hash, extracted_text, extraction_method, indexed_at\n"
+        printf ") VALUES (\n"
+        printf "    '%s', '%s', '%s', '%s',\n" "$safe_id" "$safe_project" "$safe_file_path" "$safe_file_name"
+        printf "    '%s', '%s', %s, '%s',\n" "$safe_title" "$file_type" "$file_size" "$content_hash"
+        printf "    '%s', '%s', datetime('now')\n" "$(episodic_sql_escape "$extracted_text")" "$extraction_method"
+        printf ");\n\n"
+        printf "DELETE FROM documents_fts WHERE doc_id = '%s';\n" "$safe_id"
+        printf "INSERT INTO documents_fts (doc_id, project, file_name, title, extracted_text)\n"
+        printf "VALUES ('%s', '%s', '%s', '%s', '%s');\n" \
+            "$safe_id" "$safe_project" "$safe_file_name" "$safe_title" "$(episodic_sql_escape "$extracted_text")"
+        printf "COMMIT;\n"
+    } > "$sql_file"
+
+    sqlite3 "$db" < "$sql_file"
 
     episodic_log "INFO" "Indexed: $doc_id ($file_type, $file_size bytes)"
 }
@@ -298,10 +275,10 @@ episodic_index_search() {
     local limit="${2:-10}"
     local db="${EPISODIC_DB}"
 
-    # Escape single quotes in query
-    query="${query//\'/\'\'}"
+    query=$(episodic_fts5_escape "$query")
+    query=$(episodic_sql_escape "$query")
 
-    sqlite3 -json "$db" <<SQL
+    episodic_db_query_json "
 SELECT d.id, d.project, d.file_path, d.file_name, d.title, d.file_type,
        d.indexed_at, d.file_size, d.extraction_method,
        snippet(documents_fts, 4, '>>>', '<<<', '...', 30) as snippet, rank
@@ -309,8 +286,7 @@ FROM documents_fts fts
 JOIN documents d ON d.id = fts.doc_id
 WHERE documents_fts MATCH '$query'
 ORDER BY rank
-LIMIT $limit;
-SQL
+LIMIT $limit;" "$db"
 }
 
 # Return JSON with index stats
@@ -319,16 +295,16 @@ episodic_index_stats() {
     local db="${EPISODIC_DB}"
 
     local total
-    total=$(sqlite3 "$db" "SELECT count(*) FROM documents;")
+    total=$(episodic_db_exec "SELECT count(*) FROM documents;" "$db")
 
     local by_project
-    by_project=$(sqlite3 -json "$db" "SELECT project, count(*) as count FROM documents GROUP BY project;")
+    by_project=$(episodic_db_query_json "SELECT project, count(*) as count FROM documents GROUP BY project;" "$db")
 
     local by_type
-    by_type=$(sqlite3 -json "$db" "SELECT file_type, count(*) as count FROM documents GROUP BY file_type;")
+    by_type=$(episodic_db_query_json "SELECT file_type, count(*) as count FROM documents GROUP BY file_type;" "$db")
 
     local total_size
-    total_size=$(sqlite3 "$db" "SELECT coalesce(sum(file_size), 0) FROM documents;")
+    total_size=$(episodic_db_exec "SELECT coalesce(sum(file_size), 0) FROM documents;" "$db")
 
     jq -n \
         --argjson total "$total" \
@@ -345,17 +321,18 @@ episodic_index_cleanup() {
     local db="${EPISODIC_DB}"
     local removed=0
 
-    # Escape single quotes
-    local safe_project="${project//\'/\'\'}"
+    local safe_project
+    safe_project=$(episodic_sql_escape "$project")
 
     local doc_ids_paths
-    doc_ids_paths=$(sqlite3 "$db" "SELECT id, file_path FROM documents WHERE project='$safe_project';")
+    doc_ids_paths=$(episodic_db_exec "SELECT id, file_path FROM documents WHERE project='$safe_project';" "$db")
 
     while IFS='|' read -r doc_id file_path; do
         [[ -z "$doc_id" ]] && continue
         if [[ ! -f "$file_path" ]]; then
-            local safe_id="${doc_id//\'/\'\'}"
-            sqlite3 "$db" <<SQL
+            local safe_id
+            safe_id=$(episodic_sql_escape "$doc_id")
+            episodic_db_exec_multi "$db" <<SQL
 DELETE FROM documents WHERE id = '$safe_id';
 DELETE FROM documents_fts WHERE doc_id = '$safe_id';
 SQL

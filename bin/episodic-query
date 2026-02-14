@@ -134,7 +134,7 @@ if [[ "$RECENT_MODE" == "true" ]]; then
     if [[ -n "$PROJECT" ]]; then
         results=$(episodic_db_recent "$PROJECT" "$LIMIT")
     else
-        results=$(sqlite3 -json "$EPISODIC_DB" "
+        results=$(episodic_db_query_json "
             SELECT s.id, s.project, s.created_at, s.first_prompt, s.git_branch,
                    s.duration_minutes, sum.summary, sum.topics, sum.decisions, sum.key_insights, sum.dead_ends
             FROM sessions s
@@ -159,8 +159,9 @@ fi
 
 # Docs-only mode: search only documents
 if [[ "$DOCS_ONLY" == "true" ]]; then
-    query_escaped="${QUERY//\'/\'\'}"
-    doc_results=$(sqlite3 -json "$EPISODIC_DB" "
+    query_escaped=$(episodic_fts5_escape "$QUERY")
+    query_escaped=$(episodic_sql_escape "$query_escaped")
+    doc_results=$(episodic_db_query_json "
         SELECT d.id, d.project, d.file_path, d.file_name, d.title, d.file_type,
                d.indexed_at, d.file_size, d.extraction_method,
                snippet(documents_fts, 4, '>>>', '<<<', '...', 30) as snippet, rank
@@ -181,14 +182,14 @@ fi
 
 # FTS5 session search
 if [[ -n "$PROJECT" ]]; then
-    results=$(sqlite3 -json "$EPISODIC_DB" "
+    results=$(episodic_db_query_json "
         SELECT s.id, s.project, s.created_at, s.first_prompt, s.git_branch,
                s.duration_minutes, sum.summary, sum.topics, sum.decisions,
                sum.key_insights, sum.dead_ends, rank
         FROM sessions_fts fts
         JOIN sessions s ON s.id = fts.session_id
         JOIN summaries sum ON sum.session_id = fts.session_id
-        WHERE sessions_fts MATCH '${QUERY//\'/\'\'}' AND s.project = '${PROJECT//\'/\'\'}'
+        WHERE sessions_fts MATCH '$(episodic_sql_escape "$(episodic_fts5_escape "$QUERY")")' AND s.project = '$(episodic_sql_escape "$PROJECT")'
         ORDER BY rank
         LIMIT $LIMIT;
     ")
@@ -204,8 +205,9 @@ fi
 
 # Also search documents and append results (unless --json mode)
 if [[ "$JSON_OUTPUT" != "true" ]]; then
-    query_escaped="${QUERY//\'/\'\'}"
-    doc_results=$(sqlite3 -json "$EPISODIC_DB" "
+    query_escaped=$(episodic_fts5_escape "$QUERY")
+    query_escaped=$(episodic_sql_escape "$query_escaped")
+    doc_results=$(episodic_db_query_json "
         SELECT d.id, d.project, d.file_path, d.file_name, d.title, d.file_type,
                d.indexed_at, d.file_size, d.extraction_method,
                snippet(documents_fts, 4, '>>>', '<<<', '...', 30) as snippet, rank

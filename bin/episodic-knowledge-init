@@ -17,8 +17,9 @@ episodic_knowledge_init "$REPO_URL"
 # Save repo URL to .env for persistence across sessions
 ENV_FILE="$EPISODIC_ROOT/.env"
 if [[ -f "$ENV_FILE" ]] && grep -q "EPISODIC_KNOWLEDGE_REPO" "$ENV_FILE" 2>/dev/null; then
-    # Update existing line
-    sed -i '' "s|^EPISODIC_KNOWLEDGE_REPO=.*|EPISODIC_KNOWLEDGE_REPO=\"$REPO_URL\"|" "$ENV_FILE"
+    # Update existing line (cross-platform: write to temp file and move)
+    local_tmp=$(mktemp)
+    sed "s|^EPISODIC_KNOWLEDGE_REPO=.*|EPISODIC_KNOWLEDGE_REPO=\"$REPO_URL\"|" "$ENV_FILE" > "$local_tmp" && mv "$local_tmp" "$ENV_FILE"
 else
     echo "EPISODIC_KNOWLEDGE_REPO=\"$REPO_URL\"" >> "$ENV_FILE"
 fi

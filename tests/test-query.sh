@@ -32,6 +32,7 @@ episodic_db_insert_session "s1" "myproject" "/Users/test/myproject" "" "" \
 
 summary1='{"topics":["FTS5 search","episodic memory","SQLite"],"decisions":["Use FTS5 over vector embeddings for simplicity"],"dead_ends":["Tried FAISS but too complex"],"artifacts_created":["lib/db.sh","bin/episodic-query"],"key_insights":["Porter stemming handles synonyms well"],"summary":"Built FTS5 search system for episodic memory using SQLite."}'
 episodic_db_insert_summary "s1" "$summary1" "haiku"
+episodic_db_update_log "s1" "complete"
 
 # Session 2: API performance focused
 episodic_db_insert_session "s2" "webapp" "/Users/test/webapp" "" "" \
@@ -39,6 +40,7 @@ episodic_db_insert_session "s2" "webapp" "/Users/test/webapp" "" "" \
 
 summary2='{"topics":["API performance","cost optimization","data processing"],"decisions":["Reduce processing frequency to save costs"],"dead_ends":["Tried switching to batch mode but latency issues"],"artifacts_created":["config/api-config.json"],"key_insights":["API performance varies by endpoint and tier, $50K/yr"],"summary":"Analyzed API performance for webapp data processing. Found $50K/yr spend on migration project."}'
 episodic_db_insert_summary "s2" "$summary2" "haiku"
+episodic_db_update_log "s2" "complete"
 
 # Session 3: Unrelated session
 episodic_db_insert_session "s3" "dashboard" "/Users/test/dashboard" "" "" \
@@ -46,6 +48,7 @@ episodic_db_insert_session "s3" "dashboard" "/Users/test/dashboard" "" "" \
 
 summary3='{"topics":["authentication","OAuth","bug fix"],"decisions":["Switch to refresh token rotation"],"dead_ends":[],"artifacts_created":["auth/handler.ts"],"key_insights":["Refresh tokens must be rotated on each use"],"summary":"Fixed OAuth authentication bug by implementing refresh token rotation."}'
 episodic_db_insert_summary "s3" "$summary3" "haiku"
+episodic_db_update_log "s3" "complete"
 
 echo "PASS (3 sessions inserted)"
 

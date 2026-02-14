@@ -39,6 +39,9 @@ if [[ -z "$PROJECT" ]]; then
     PROJECT=$(basename "${CWD:-$(pwd)}")
 fi
 
+# Escape for SQL single-quote interpolation
+SAFE_PROJECT=$(episodic_sql_escape "$PROJECT")
+
 # Check DB exists
 if [[ ! -f "$EPISODIC_DB" ]]; then
     exit 0
@@ -160,15 +163,15 @@ if type episodic_knowledge_is_configured &>/dev/null && episodic_knowledge_is_co
 fi
 
 # Output indexed documents for project if available
-doc_count=$(sqlite3 "$EPISODIC_DB" "SELECT count(*) FROM documents WHERE project='$PROJECT';" 2>/dev/null || echo "0")
+doc_count=$(episodic_db_exec "SELECT count(*) FROM documents WHERE project='$SAFE_PROJECT';" 2>/dev/null || echo "0")
 if [[ "$doc_count" -gt 0 ]]; then
     echo ""
     echo "# Project Documents (${PROJECT})"
     echo ""
-    sqlite3 "$EPISODIC_DB" "
+    episodic_db_exec "
         SELECT file_name, title, file_type, file_size
         FROM documents
-        WHERE project='$PROJECT'
+        WHERE project='$SAFE_PROJECT'
         ORDER BY file_name;
     " 2>/dev/null | while IFS='|' read -r fname title ftype fsize; do
         size_kb=$(( ${fsize:-0} / 1024 ))
