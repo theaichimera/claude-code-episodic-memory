@@ -279,7 +279,7 @@ Git gives you:
 # Create your knowledge repo on GitHub (private recommended)
 # Then configure episodic-memory to use it:
 
-episodic-knowledge-init git@github.com:youruser/claude-knowledge.git
+pi-knowledge-init git@github.com:youruser/claude-knowledge.git
 ```
 
 This clones the repo to `~/.claude/knowledge/` and stores the URL in config.
@@ -340,10 +340,10 @@ estimates with real billing data before acting on them.
 
 - **Automatic**: After every N archived sessions (configurable via `EPISODIC_SYNTHESIZE_EVERY`, default: 2). Runs in background after `episodic-archive`.
 - **On demand**: `/synthesize` or `bin/episodic-synthesize --project acme-app`
-- **After backfill**: `episodic-backfill --synthesize` runs synthesis for all qualifying projects after import
+- **After backfill**: `pi-backfill --synthesize` runs synthesis for all qualifying projects after import
 - **Manual save**: `/save-skill` during a session to explicitly save an insight as a skill
 - **Manual review**: Skills are Markdown — you can edit them directly
-- **Suppressed during backfill**: `episodic-backfill` sets `EPISODIC_BACKFILL_MODE=true` to avoid triggering per-session synthesis during bulk import
+- **Suppressed during backfill**: `pi-backfill` sets `EPISODIC_BACKFILL_MODE=true` to avoid triggering per-session synthesis during bulk import
 
 ### Skill Decay (Context Injection)
 
@@ -477,8 +477,8 @@ The SQLite database is a **local cache**. It can be fully regenerated from:
 ### Install
 
 ```bash
-git clone git@github.com:youruser/claude-episodic-memory.git ~/.claude/episodic-memory
-cd ~/.claude/episodic-memory
+git clone git@github.com:youruser/claude-code-project-intelligence.git ~/.claude/project-intelligence
+cd ~/.claude/project-intelligence
 ./install.sh
 ```
 
@@ -493,26 +493,26 @@ cd ~/.claude/episodic-memory
 
 ```bash
 # Create a private repo on GitHub first, then:
-~/.claude/episodic-memory/bin/episodic-knowledge-init git@github.com:you/claude-knowledge.git
+~/.claude/project-intelligence/bin/pi-knowledge-init git@github.com:you/claude-knowledge.git
 ```
 
 ### Backfill Existing Sessions
 
 ```bash
 # Preview what will be backfilled
-~/.claude/episodic-memory/bin/episodic-backfill --dry-run
+~/.claude/project-intelligence/bin/pi-backfill --dry-run
 
 # Metadata only (fast, free)
-~/.claude/episodic-memory/bin/episodic-backfill --no-summary
+~/.claude/project-intelligence/bin/pi-backfill --no-summary
 
 # Full backfill with Haiku summaries (~$0.008/session)
-~/.claude/episodic-memory/bin/episodic-backfill
+~/.claude/project-intelligence/bin/pi-backfill
 ```
 
 ### Uninstall
 
 ```bash
-~/.claude/episodic-memory/uninstall.sh
+~/.claude/project-intelligence/uninstall.sh
 ```
 
 Removes hooks and skill symlinks. Optionally deletes DB (archives and knowledge repo are preserved).
@@ -725,18 +725,18 @@ Tests use temporary databases in `/tmp` and clean up after themselves. No API ke
 
 ```bash
 # Machine 1: Full install + backfill
-git clone <this-repo> ~/.claude/episodic-memory
-cd ~/.claude/episodic-memory && ./install.sh
-bin/episodic-knowledge-init git@github.com:you/claude-knowledge.git
-bin/episodic-backfill
+git clone <this-repo> ~/.claude/project-intelligence
+cd ~/.claude/project-intelligence && ./install.sh
+bin/pi-knowledge-init git@github.com:you/claude-knowledge.git
+bin/pi-backfill
 
 # Machine 2: Install + connect to same knowledge repo
-git clone <this-repo> ~/.claude/episodic-memory
-cd ~/.claude/episodic-memory && ./install.sh
-bin/episodic-knowledge-init git@github.com:you/claude-knowledge.git
+git clone <this-repo> ~/.claude/project-intelligence
+cd ~/.claude/project-intelligence && ./install.sh
+bin/pi-knowledge-init git@github.com:you/claude-knowledge.git
 # Skills and context are immediately available
 # Run backfill for local session archives if needed
-bin/episodic-backfill
+bin/pi-backfill
 ```
 
 The knowledge repo is the bridge between machines. The SQLite DB is local and regenerable. Session archives can be local-only or synced separately if desired.
@@ -744,8 +744,8 @@ The knowledge repo is the bridge between machines. The SQLite DB is local and re
 ## Verification Checklist
 
 1. `./install.sh` — hooks added to settings.json, DB created, skill installed
-2. `bin/episodic-backfill --dry-run` — shows all sessions to import
-3. `bin/episodic-backfill` — imports with progress, check `archive_log` table
+2. `bin/pi-backfill --dry-run` — shows all sessions to import
+3. `bin/pi-backfill` — imports with progress, check `archive_log` table
 4. `bin/episodic-query "API optimization"` — returns ranked results
 5. Start new Claude Code session — previous session archived, context injected
 6. `/recall API optimization pricing` — skill returns search results

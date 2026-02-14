@@ -19,7 +19,7 @@ Track how your understanding of a topic evolves across sessions. A progression i
 Start tracking a new topic.
 
 ```bash
-~/.claude/episodic-memory/bin/pi-progression-init --project PROJECT --topic "Topic Name"
+${CLAUDE_PLUGIN_ROOT:-~/.claude/project-intelligence}/bin/pi-progression-init --project PROJECT --topic "Topic Name"
 ```
 
 Determine PROJECT from the current working directory (`basename` of CWD). Ask the user for the topic name if not provided.
@@ -31,7 +31,7 @@ Example: `/progress start ECS Task Placement Strategy`
 Save the current analysis/finding as a numbered document in the progression.
 
 ```bash
-~/.claude/episodic-memory/bin/pi-progression-add \
+${CLAUDE_PLUGIN_ROOT:-~/.claude/project-intelligence}/bin/pi-progression-add \
   --project PROJECT \
   --topic "TOPIC" \
   --number NN \
@@ -62,7 +62,7 @@ Example: `/progress add correction "Actual Cost is $3.9K not $387K" --corrects 1
 Use this when a new finding invalidates a previous document. This is a shortcut that combines `add` with `--type correction --corrects NN`.
 
 ```bash
-~/.claude/episodic-memory/bin/pi-progression-add \
+${CLAUDE_PLUGIN_ROOT:-~/.claude/project-intelligence}/bin/pi-progression-add \
   --project PROJECT \
   --topic "TOPIC" \
   --number NN \
@@ -77,7 +77,7 @@ Example: `/progress correct 1 "CUR shows actual cost is much lower"`
 ### conclude - Mark a progression as complete
 
 ```bash
-~/.claude/episodic-memory/bin/pi-progression-conclude --project PROJECT --topic "TOPIC"
+${CLAUDE_PLUGIN_ROOT:-~/.claude/project-intelligence}/bin/pi-progression-conclude --project PROJECT --topic "TOPIC"
 ```
 
 Concluded progressions are no longer injected into session context but remain searchable.
@@ -87,7 +87,7 @@ Example: `/progress conclude ECS Task Placement Strategy`
 ### show - Show details of a specific progression
 
 ```bash
-~/.claude/episodic-memory/bin/pi-progression-status --project PROJECT --topic "TOPIC"
+${CLAUDE_PLUGIN_ROOT:-~/.claude/project-intelligence}/bin/pi-progression-status --project PROJECT --topic "TOPIC"
 ```
 
 Shows: status, document list with types, corrections, current position.
@@ -97,7 +97,7 @@ Example: `/progress show ECS Task Placement Strategy`
 ### list - List all progressions for the project
 
 ```bash
-~/.claude/episodic-memory/bin/pi-progression-status --project PROJECT
+${CLAUDE_PLUGIN_ROOT:-~/.claude/project-intelligence}/bin/pi-progression-status --project PROJECT
 ```
 
 Shows all progressions with their status (active/concluded/parked).
