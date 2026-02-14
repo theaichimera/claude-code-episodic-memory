@@ -79,13 +79,30 @@ You have a progression tracking system. Progressions capture how understanding e
 
 **When you create one:** Save each significant finding as a numbered document. Mark corrections explicitly — they're the most valuable part. At the end of a multi-document session, briefly note what changed and what's still open.
 
-**Commands:**
-- `pi-progression-init --project PROJECT --topic "Topic"` — start
-- `echo "CONTENT" | pi-progression-add --project PROJECT --topic TOPIC --number NN --title "Title" --type TYPE --file -` — add doc via stdin (preferred — no temp files)
-- `pi-progression-add ... --corrects NN` — mark correction
-- `pi-progression-status --project PROJECT` — see what exists
+**Commands (all via Bash tool, NEVER use Write tool for progressions):**
 
-PROJECT = basename of current working directory. Use `--file -` to pipe content via stdin. Do NOT write to /tmp.
+```bash
+# Start a progression
+pi-progression-init --project PROJECT --topic "Topic"
+
+# Add a document — use heredoc pipe, single Bash call
+cat <<'DOC' | pi-progression-add --project PROJECT --topic TOPIC --number NN --title "Title" --type TYPE --file -
+# Your Document Title
+
+Your content here. Markdown format.
+DOC
+
+# Add a correction
+cat <<'DOC' | pi-progression-add --project PROJECT --topic TOPIC --number NN --title "Title" --type correction --corrects PREV_NN --file -
+Content...
+DOC
+
+# Check status
+pi-progression-status --project PROJECT
+```
+
+IMPORTANT: Always use a SINGLE Bash call with heredoc pipe. Do NOT use the Write tool. Do NOT write to /tmp. The --file - flag reads from stdin.
+PROJECT = basename of current working directory.
 Types: baseline, deepening, correction, pivot, synthesis.
 PIINSTRUCTIONS
 echo ""
