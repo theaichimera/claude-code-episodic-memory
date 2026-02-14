@@ -5,6 +5,7 @@ set -euo pipefail
 TEST_DIR=$(mktemp -d)
 trap 'rm -rf "$TEST_DIR"' EXIT
 
+export EPISODIC_ROOT="$TEST_DIR"
 export EPISODIC_DATA_DIR="$TEST_DIR"
 export EPISODIC_DB="$TEST_DIR/test.db"
 export EPISODIC_LOG="$TEST_DIR/test.log"
