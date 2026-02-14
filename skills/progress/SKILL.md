@@ -50,7 +50,17 @@ ${CLAUDE_PLUGIN_ROOT:-~/.claude/project-intelligence}/bin/pi-progression-add \
 
 **How to determine the number:** Look at the existing progression with `pi-progression-status` and use the next sequential number.
 
-**How to create content:** Write the document content to a temp file, then pass it via `--file`. The content should capture:
+**How to create content:** Pipe content directly via stdin using `--file -`. Do NOT write to /tmp. Example:
+
+```bash
+cat <<'DOC' | pi-progression-add --project PROJECT --topic TOPIC --number NN --title "Title" --type TYPE --file -
+# Document Title
+
+Content goes here...
+DOC
+```
+
+The content should capture:
 - What was discovered/analyzed
 - Key data points or evidence
 - How this relates to previous documents in the progression
