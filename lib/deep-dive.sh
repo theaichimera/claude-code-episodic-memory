@@ -214,7 +214,7 @@ Generate the deep-dive document."
         --argjson budget "$thinking_budget" \
         '{
             model: $model,
-            max_tokens: 16000,
+            max_tokens: ($budget + 8000),
             thinking: {
                 type: "enabled",
                 budget_tokens: $budget

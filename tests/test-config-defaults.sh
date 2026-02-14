@@ -19,12 +19,12 @@ trap cleanup EXIT
 
 echo "=== test-config-defaults ==="
 
-# Test 1: EPISODIC_OPUS_MODEL should be opus 4.5
+# Test 1: EPISODIC_OPUS_MODEL should be opus 4.6
 echo -n "  1. EPISODIC_OPUS_MODEL default... "
-if [[ "$EPISODIC_OPUS_MODEL" == "claude-opus-4-5-20251101" ]]; then
+if [[ "$EPISODIC_OPUS_MODEL" == "claude-opus-4-6" ]]; then
     echo "PASS ($EPISODIC_OPUS_MODEL)"
 else
-    echo "FAIL: expected claude-opus-4-5-20251101, got $EPISODIC_OPUS_MODEL"
+    echo "FAIL: expected claude-opus-4-6, got $EPISODIC_OPUS_MODEL"
     exit 1
 fi
 

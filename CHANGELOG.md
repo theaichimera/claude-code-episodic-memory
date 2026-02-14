@@ -15,6 +15,17 @@ All notable changes to claude-episodic-memory are documented in this file.
 - `tests/test-deep-dive.sh`: 9 tests covering context collection, read/write, frontmatter
 - This CHANGELOG
 
+### Changed
+- **Skill synthesis v2** — major quality overhaul
+  - Now reads raw session transcripts from JSONL archives instead of summaries-of-summaries
+  - Extended thinking enabled (16K token budget) for deeper analysis
+  - Completely rewritten prompt enforcing specific quality bar: exact commands, file paths, failure modes required
+  - Skills must follow structured template: When to use, What to do, Gotchas, Why
+  - Supports `action: delete` to remove skills contradicted by new evidence
+  - Upgraded default model from Opus 4.5 to Opus 4.6
+  - New config: `EPISODIC_SYNTHESIZE_THINKING_BUDGET`, `EPISODIC_SYNTHESIZE_TRANSCRIPT_COUNT`, `EPISODIC_SYNTHESIZE_TRANSCRIPT_CHARS`
+  - Summaries still used as secondary input for broader pattern coverage beyond the transcript window
+
 ## [1.3.0] - 2026-02-13
 
 ### Added

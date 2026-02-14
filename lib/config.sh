@@ -20,8 +20,17 @@ EPISODIC_SUMMARY_THINKING="${EPISODIC_SUMMARY_THINKING:-true}"
 # Thinking budget in tokens (only used when EPISODIC_SUMMARY_THINKING=true)
 EPISODIC_SUMMARY_THINKING_BUDGET="${EPISODIC_SUMMARY_THINKING_BUDGET:-10000}"
 
-# Skill synthesis model
-EPISODIC_OPUS_MODEL="${EPISODIC_OPUS_MODEL:-claude-opus-4-5-20251101}"
+# Skill synthesis model and thinking budget
+EPISODIC_OPUS_MODEL="${EPISODIC_OPUS_MODEL:-claude-opus-4-6}"
+
+# Extended thinking budget for synthesis (tokens)
+EPISODIC_SYNTHESIZE_THINKING_BUDGET="${EPISODIC_SYNTHESIZE_THINKING_BUDGET:-16000}"
+
+# Max chars per transcript when loading for synthesis
+EPISODIC_SYNTHESIZE_TRANSCRIPT_CHARS="${EPISODIC_SYNTHESIZE_TRANSCRIPT_CHARS:-30000}"
+
+# Number of recent transcripts to load (full text) for synthesis
+EPISODIC_SYNTHESIZE_TRANSCRIPT_COUNT="${EPISODIC_SYNTHESIZE_TRANSCRIPT_COUNT:-5}"
 
 # Vision model for PDF/image OCR during document indexing
 EPISODIC_INDEX_VISION_MODEL="${EPISODIC_INDEX_VISION_MODEL:-claude-haiku-4-5-20251001}"

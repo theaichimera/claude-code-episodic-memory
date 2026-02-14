@@ -72,7 +72,7 @@ Tests create temp databases in `/tmp` and clean up via `trap`. Most tests don't 
 - `extract.sh` — JSONL parsing. Filters out progress/snapshot events, extracts user+assistant messages for summarization.
 - `summarize.sh` — Anthropic API call (supports extended thinking). Sends extracted transcript, gets structured JSON summary.
 - `knowledge.sh` — Git operations for the knowledge repo (clone, pull, push, conflict handling). All git operations serialized via lockfile.
-- `synthesize.sh` — Opus-powered skill generation. Auto-synthesis check (`EPISODIC_SYNTHESIZE_EVERY`), backfill suppression via `EPISODIC_BACKFILL_MODE`.
+- `synthesize.sh` — Opus-powered skill generation (v2). Reads raw session transcripts from JSONL archives (not just summaries) for deep, specific skills. Uses extended thinking. Supports create/update/delete actions. Auto-synthesis check (`EPISODIC_SYNTHESIZE_EVERY`), backfill suppression via `EPISODIC_BACKFILL_MODE`. Config: `EPISODIC_SYNTHESIZE_THINKING_BUDGET` (16K), `EPISODIC_SYNTHESIZE_TRANSCRIPT_COUNT` (5), `EPISODIC_SYNTHESIZE_TRANSCRIPT_CHARS` (30K).
 - `deep-dive.sh` — Codebase deep-dive generation. Context collection (tree, manifests, entry points, README, Docker), Opus API with extended thinking, YAML frontmatter write/read.
 - `index.sh` — Document text extraction (format-aware: direct read, pdftotext, html-strip, textutil/pandoc for docx) + FTS5 indexing with SHA-256 change detection. Schema is owned by `db.sh` — this module delegates `episodic_db_init`.
 
