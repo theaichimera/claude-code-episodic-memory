@@ -81,11 +81,11 @@ You have a progression tracking system. Progressions capture how understanding e
 
 **Commands:**
 - `pi-progression-init --project PROJECT --topic "Topic"` — start
-- `pi-progression-add --project PROJECT --topic TOPIC --number NN --title "Title" --type TYPE --file PATH` — add doc
+- `echo "CONTENT" | pi-progression-add --project PROJECT --topic TOPIC --number NN --title "Title" --type TYPE --file -` — add doc via stdin (preferred — no temp files)
 - `pi-progression-add ... --corrects NN` — mark correction
 - `pi-progression-status --project PROJECT` — see what exists
 
-PROJECT = basename of current working directory. Write content to a temp file, pass via --file.
+PROJECT = basename of current working directory. Use `--file -` to pipe content via stdin. Do NOT write to /tmp.
 Types: baseline, deepening, correction, pivot, synthesis.
 PIINSTRUCTIONS
 echo ""
