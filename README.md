@@ -1,19 +1,35 @@
-# claude-episodic-memory
+# Project Intelligence
 
-A self-contained episodic memory and learning system for Claude Code. Archives conversation transcripts, generates searchable summaries, synthesizes reusable skills, and evolves project knowledge over time — all backed by Git for multi-machine sync.
+A learning system for Claude Code that gets smarter within every project over time. Archives sessions, generates searchable summaries, synthesizes reusable skills, tracks how your understanding evolves through reasoning progressions, and syncs everything across machines via Git.
 
 ## The Problem
 
-Claude Code sessions are ephemeral. Every new conversation starts from zero. Current memory mechanisms (`MEMORY.md`, `CLAUDE.md`) capture facts but lose the reasoning trail — why decisions were made, what dead ends were explored, the full narrative of problem-solving. Worse, patterns that emerge across sessions (workflows you repeat, approaches that work) are never captured as reusable knowledge.
+Claude Code sessions are ephemeral. Every new conversation starts from zero. Current memory mechanisms (`MEMORY.md`, `CLAUDE.md`) capture facts but lose the reasoning trail — why decisions were made, what dead ends were explored, how your understanding of a problem evolved through corrections and evidence. Patterns that emerge across sessions are never captured as reusable knowledge. And when you revisit a topic weeks later, you start from scratch instead of picking up where you left off.
 
 ## What This Does
 
-Four interconnected systems:
+Five interconnected systems:
 
 1. **Episodic Memory** — Archive every session, generate structured summaries, enable full-text search across your entire conversation history
 2. **Document Indexing** — Index files in your knowledge repo (Markdown, code, PDFs, images) for full-text search alongside session history
 3. **Skill Synthesis** — Opus analyzes sessions and generates project-specific skills (structured prompts/playbooks) that capture recurring patterns, with auto-synthesis every N sessions
-4. **Knowledge Repo** — Git-backed per-project knowledge store that syncs across machines, versions skill evolution, and serves as the durable source of truth
+4. **Progressions** — Track how your understanding of a topic evolves across a session or across sessions. A sequence of numbered documents that captures the full reasoning arc: initial assessment, deepenings, corrections, pivots, and synthesis. Corrections never decay — future sessions inherit what was wrong and why.
+5. **Knowledge Repo** — Git-backed per-project knowledge store that syncs across machines, versions skill evolution, stores progressions, and serves as the durable source of truth
+
+## Why Open Source
+
+**The tool is the plumbing. Your data is the value.**
+
+Your session history, skills, progressions, and accumulated project intelligence — that's private. It lives in your own Git repo, under your control, on your machines. Nobody sees it but you.
+
+The tool that captures and retrieves that intelligence is commodity infrastructure. There's no competitive advantage in keeping the plumbing closed. The advantage is in what flows through it — and that's yours.
+
+Open source means:
+- **You can audit exactly what runs.** This system reads your Claude Code session transcripts and can send progression content to the Anthropic API. You should be able to inspect every line of code that touches your data.
+- **Community contributions make everyone's tool better.** Better search, better context injection, better skill synthesis. Your private data stays private. The tool improves for everyone.
+- **Your company gets the upside with zero risk.** If your organization uses this, their intelligence stays in their private knowledge repo. The open source tool just makes it more useful. There's nothing to protect by keeping it closed, and everything to gain from community improvements.
+
+The value each team brings is their own accumulated intelligence — the reasoning chains, the corrections, the patterns extracted from their specific work. That's private by design. The tool that makes it searchable and injectable is better when it's open.
 
 ## Architecture
 
@@ -57,47 +73,50 @@ Four interconnected systems:
 ## Project Structure
 
 ```
-~/.claude/episodic-memory/              # The tool (this repo)
+~/.claude/project-intelligence/         # The tool (this repo)
+├── .claude-plugin/
+│   └── plugin.json                     # Claude Code plugin manifest
 ├── README.md                           # This file
 ├── install.sh                          # One-command setup
 ├── uninstall.sh                        # Clean removal
 ├── bin/
-│   ├── episodic-init                   # Initialize DB + directories
-│   ├── episodic-archive                # Archive + summarize a session
-│   ├── episodic-query                  # CLI search interface
-│   ├── episodic-backfill               # Bulk import existing sessions
-│   ├── episodic-context                # Generate context for session start
-│   ├── episodic-knowledge-init         # Clone/setup knowledge repo
-│   ├── episodic-knowledge-sync         # Git pull/push knowledge repo
-│   ├── episodic-synthesize             # Generate skills from sessions (Opus)
-│   └── episodic-index                  # Index knowledge repo docs for search
+│   ├── pi-init                         # Initialize DB + directories
+│   ├── pi-archive                      # Archive + summarize a session
+│   ├── pi-query                        # CLI search interface
+│   ├── pi-backfill                     # Bulk import existing sessions
+│   ├── pi-context                      # Generate context for session start
+│   ├── pi-knowledge-init               # Clone/setup knowledge repo
+│   ├── pi-knowledge-sync               # Git pull/push knowledge repo
+│   ├── pi-synthesize                   # Generate skills from sessions (Opus)
+│   ├── pi-index                        # Index knowledge repo docs for search
+│   ├── pi-deep-dive                    # Generate codebase analysis
+│   ├── pi-progression-init             # Create a new progression
+│   ├── pi-progression-add              # Add a document to a progression
+│   ├── pi-progression-status           # Show progression state
+│   ├── pi-progression-conclude         # Mark progression as concluded
+│   └── episodic-*                      # Backward-compat symlinks → pi-*
 ├── hooks/
 │   ├── on-session-start.sh             # SessionStart hook
 │   └── on-stop.sh                      # Stop hook
 ├── skills/
-│   ├── recall/
-│   │   └── SKILL.md                    # /recall — search session history
-│   └── save-skill/
-│       └── SKILL.md                    # /save-skill — save insight as skill
+│   ├── recall/SKILL.md                 # /recall — search sessions + progressions
+│   ├── save-skill/SKILL.md             # /save-skill — save insight as skill
+│   ├── progress/SKILL.md               # /progress — manage reasoning progressions
+│   └── reflect/SKILL.md                # /reflect — synthesize progression state
 ├── lib/
-│   ├── config.sh                       # Configuration (paths, env vars)
+│   ├── config.sh                       # Configuration (PI_* primary, EPISODIC_* compat)
 │   ├── db.sh                           # SQLite helpers
 │   ├── extract.sh                      # JSONL extraction + filtering
-│   ├── summarize.sh                    # Haiku API for summaries
+│   ├── summarize.sh                    # API for summaries
 │   ├── knowledge.sh                    # Knowledge repo git operations
 │   ├── synthesize.sh                   # Opus skill generation + auto-synthesis
-│   └── index.sh                        # Document text extraction + FTS5 indexing
+│   ├── index.sh                        # Document text extraction + FTS5 indexing
+│   ├── deep-dive.sh                    # Codebase deep-dive generation
+│   └── progression.sh                  # Progression tracking (create, add, correct, context)
 └── tests/
-    ├── run-all.sh                      # Test runner
-    ├── test-init.sh                    # DB creation + idempotency
-    ├── test-archive.sh                 # Session archival
-    ├── test-query.sh                   # FTS5 search + ranking
-    ├── test-roundtrip.sh               # Full capture → store → retrieve
-    ├── test-knowledge.sh               # Knowledge repo operations
-    ├── test-synthesize.sh              # Skill generation + auto-synthesis
-    ├── test-index.sh                   # Document indexing + search
-    └── fixtures/
-        └── sample-session.jsonl        # Test fixture
+    ├── run-all.sh                      # Test runner (22 existing tests)
+    ├── test-progressions.sh            # Progression tests (18 tests)
+    └── ...                             # Other test suites
 ```
 
 ## Data Flow
@@ -214,11 +233,23 @@ The knowledge repo is a **separate Git repository** that you create and own. It 
 │   ├── skills/
 │   │   ├── validate-cost.md            # "Always validate estimates against billing data"
 │   │   └── query-pattern.md            # "How to query billing for a specific service"
+│   ├── progressions/                   # Reasoning chains (NEW)
+│   │   └── data-model-strategy/
+│   │       ├── progression.yaml        # Metadata: topic, status, corrections, position
+│   │       ├── 00_initial-assessment.md
+│   │       ├── 01_thesis.md
+│   │       ├── 02_architecture.md
+│   │       └── 03_correction.md        # Corrects doc 01 with evidence
+│   ├── deep-dive.md                    # Codebase analysis
 │   └── context.md                      # Auto-generated project summary
 ├── acme-app/
 │   ├── skills/
-│   │   ├── api-optimization.md         # Full workflow for analyzing API costs
-│   │   └── container-scaling.md        # Checklist for setting up auto-scaling
+│   │   ├── api-optimization.md
+│   │   └── container-scaling.md
+│   ├── progressions/
+│   │   └── cost-analysis/
+│   │       ├── progression.yaml
+│   │       └── ...
 │   └── context.md
 └── webapp/
     ├── skills/
@@ -525,33 +556,126 @@ EPISODIC_SKILL_FRESH_DAYS="${EPISODIC_SKILL_FRESH_DAYS:-30}"   # full content in
 EPISODIC_SKILL_AGING_DAYS="${EPISODIC_SKILL_AGING_DAYS:-90}"   # one-line summary only
 ```
 
+## Progressions
+
+Progressions are reasoning chains — sequences of numbered documents that track how your understanding of a topic evolves over time. Unlike session summaries (which capture *what happened*) or skills (which capture *what to do*), progressions capture *how thinking evolved* — including corrections, dead ends, and position changes.
+
+### Why Progressions Matter
+
+A session summary says: "Discussed competitive landscape."
+
+A synthesized skill says: "Network effects concept unclear, needs further specification."
+
+A progression captures the full arc:
+- Doc 00: "Network effects claim is the weakest part of the doc"
+- Doc 01: "Replaced with per-customer compounding — much more credible"
+- Doc 03: "Research confirms — no competitor does cross-customer learning either"
+- Doc 05: **Correction** of Doc 03: "Actually, competitors DO have pieces. Revised position."
+
+The correction IS the knowledge. Future sessions inherit not just what's true, but what was previously believed and why it changed.
+
+### Commands
+
+```bash
+# Start a new progression
+/progress start "Data Model Strategy"
+
+# Add a document (number, title, type)
+/progress add 00 "Initial Assessment" --type baseline
+/progress add 01 "Deeper Analysis" --type deepening
+/progress add 02 "Revised Position" --type correction --corrects 00
+
+# View progression state
+/progress show "Data Model Strategy"
+/progress list
+
+# Mark as complete
+/progress conclude "Data Model Strategy"
+
+# Synthesize current position, corrections, and open questions
+/reflect "Data Model Strategy"
+```
+
+### Document Types
+
+| Type | Meaning |
+|------|---------|
+| `baseline` | Starting position, initial assessment |
+| `deepening` | Goes deeper on existing position, adds detail |
+| `pivot` | Introduces a new dimension or topic |
+| `correction` | Explicitly revises a previous document with evidence |
+| `synthesis` | Pulls together multiple threads into a unified view |
+
+### Context Injection
+
+Active progressions are automatically injected into new sessions:
+- **Current position** — 2-3 sentence summary of where thinking stands
+- **Corrections** — what was wrong and why (these NEVER decay)
+- **Open questions** — what to investigate next
+
+Concluded progressions inject only their current position (compact), with normal decay. Parked progressions are searchable via `/recall` but not injected.
+
+### progression.yaml
+
+Each progression has a metadata file tracking its state:
+
+```yaml
+topic: "Data Model Strategy"
+project: myproject
+status: active              # active | concluded | parked
+created: 2026-02-13
+updated: 2026-02-14
+current_position: "The intelligence layer is a data structure, not ML..."
+corrections:
+  - doc_05 corrects doc_03 (2026-02-14)
+open_questions:
+  - "Extraction quality — the one AI dependency"
+  - "Intent declaration storage format"
+documents:
+  - id: "00"
+    title: "Initial Assessment"
+    file: "00_initial-assessment.md"
+    type: baseline
+    corrects: null
+    superseded_by: null
+  - id: "01"
+    title: "Deeper Analysis"
+    file: "01_deeper-analysis.md"
+    type: deepening
+    corrects: null
+    superseded_by: null
+```
+
 ## CLI Reference
 
 | Command | Description |
 |---------|-------------|
-| `episodic-init` | Initialize database and directories |
-| `episodic-archive <path>` | Archive a single session JSONL |
-| `episodic-archive --previous` | Archive the most recent session for CWD's project |
-| `episodic-archive --all-in <dir>` | Archive all sessions in a directory |
-| `episodic-query <terms>` | FTS5 search across sessions + documents |
-| `episodic-query --docs-only <terms>` | Search only indexed documents |
-| `episodic-query --recent [N]` | Show N most recent sessions |
-| `episodic-query --project X <terms>` | Search within a specific project |
-| `episodic-backfill` | Bulk import all existing sessions |
-| `episodic-backfill --synthesize` | Backfill + generate skills for qualifying projects |
-| `episodic-backfill --dry-run` | Preview without archiving |
-| `episodic-context` | Generate context block for current project |
-| `episodic-knowledge-init <repo-url>` | Clone and configure knowledge repo |
-| `episodic-knowledge-sync [pull\|push]` | Sync knowledge repo with remote |
-| `episodic-synthesize` | Generate/update skills for current project |
-| `episodic-synthesize --project X` | Generate skills for a specific project |
-| `episodic-index --all` | Index all knowledge repo documents |
-| `episodic-index --project X` | Index documents for one project |
-| `episodic-index --search <terms>` | Quick document search |
-| `episodic-index --stats` | Show index statistics (JSON) |
-| `episodic-index --cleanup` | Remove entries for deleted files |
-| `/recall <terms>` | Search sessions + documents (slash command) |
-| `/save-skill [name]` | Save conversation insight as a pinned skill (slash command) |
+| **Core** | |
+| `pi-init` | Initialize database and directories |
+| `pi-archive <path>` | Archive a single session JSONL |
+| `pi-archive --previous` | Archive the most recent session for CWD's project |
+| `pi-query <terms>` | FTS5 search across sessions + documents |
+| `pi-query --docs-only <terms>` | Search only indexed documents |
+| `pi-query --project X <terms>` | Search within a specific project |
+| `pi-backfill` | Bulk import all existing sessions |
+| `pi-context` | Generate context block for current project |
+| **Knowledge** | |
+| `pi-knowledge-init <repo-url>` | Clone and configure knowledge repo |
+| `pi-knowledge-sync [pull\|push]` | Sync knowledge repo with remote |
+| `pi-synthesize` | Generate/update skills for current project |
+| `pi-index --all` | Index all knowledge repo documents |
+| `pi-deep-dive` | Generate codebase analysis |
+| **Progressions** | |
+| `pi-progression-init --project P --topic T` | Create a new progression |
+| `pi-progression-add --project P --topic T --number NN --title T --type TYPE` | Add a document |
+| `pi-progression-status --project P [--topic T]` | Show progression state |
+| `pi-progression-conclude --project P --topic T` | Mark progression as concluded |
+| **Slash Commands** | |
+| `/recall <terms>` | Search sessions + documents + progressions |
+| `/save-skill [name]` | Save conversation insight as a pinned skill |
+| `/progress <subcommand>` | Manage reasoning progressions |
+| `/reflect [topic]` | Synthesize progression state via Opus |
+| **Backward Compat** | All `episodic-*` commands still work as symlinks to `pi-*` |
 
 ## Design Decisions
 
