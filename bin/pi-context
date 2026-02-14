@@ -64,21 +64,29 @@ fi
 cat <<'PIINSTRUCTIONS'
 # Project Intelligence
 
-You have access to a progression tracking system. Use it proactively:
+You have a progression tracking system. Progressions capture how understanding evolves — not just conclusions, but corrections and reasoning.
 
-**When to create a progression:** If this session involves multi-step analysis, research, design, or any work that evolves through stages — start a progression. Don't wait to be asked.
+**Create a progression when ANY of these happen:**
+- You produce 2+ related documents or analyses in one session
+- The user asks you to research, compare, evaluate, or design something
+- You discover something that contradicts a previous finding
+- The user says "remember this", "track this", or "let's dig into this"
+- The work will clearly span multiple sessions
 
-**When to add documents:** After producing a significant finding, analysis, or recommendation, save it as a progression document. Use descriptive titles and the right type (baseline, deepening, correction, pivot, synthesis).
+**Do NOT create a progression for:**
+- Simple bug fixes, one-off questions, or quick tasks
+- Work that produces a single file and is done
 
-**When to mark corrections:** If new evidence contradicts an earlier document, explicitly mark the correction. Say what was wrong and why. Corrections are the most valuable memories.
+**When you create one:** Save each significant finding as a numbered document. Mark corrections explicitly — they're the most valuable part. At the end of a multi-document session, briefly note what changed and what's still open.
 
 **Commands:**
-- `pi-progression-init --project PROJECT --topic "Topic"` — start a progression
-- `pi-progression-add --project PROJECT --topic "Topic" --number NN --title "Title" --type TYPE --file PATH` — add a document
-- `pi-progression-add ... --corrects NN` — mark a correction
+- `pi-progression-init --project PROJECT --topic "Topic"` — start
+- `pi-progression-add --project PROJECT --topic TOPIC --number NN --title "Title" --type TYPE --file PATH` — add doc
+- `pi-progression-add ... --corrects NN` — mark correction
 - `pi-progression-status --project PROJECT` — see what exists
 
-Derive PROJECT from the current working directory basename. Write document content to a temp file, then pass via --file.
+PROJECT = basename of current working directory. Write content to a temp file, pass via --file.
+Types: baseline, deepening, correction, pivot, synthesis.
 PIINSTRUCTIONS
 echo ""
 
