@@ -71,13 +71,13 @@ if [[ -n "$TOPIC" ]]; then
 
     # List documents
     echo "Documents:"
-    local in_docs=0
-    local current_id="" current_title="" current_file="" current_type="" current_corrects="" current_superseded=""
+    in_docs=0
+    current_id="" current_title="" current_file="" current_type="" current_corrects="" current_superseded=""
     while IFS= read -r line; do
         if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*id:[[:space:]]*\"?([0-9]+)\"? ]]; then
             # Print previous entry if we have one
             if [[ -n "$current_id" ]]; then
-                local marker=""
+                marker=""
                 if [[ "$current_superseded" != "null" && -n "$current_superseded" ]]; then
                     marker=" [superseded by doc $current_superseded]"
                 fi
@@ -86,7 +86,7 @@ if [[ -n "$TOPIC" ]]; then
                 fi
                 printf '  %s. %s (%s)%s\n' "$current_id" "$current_title" "$current_type" "$marker"
             fi
-            current_id=$(printf '%02d' "${BASH_REMATCH[1]}")
+            current_id=$(printf '%02d' "$((10#${BASH_REMATCH[1]}))")
             current_title="" current_file="" current_type="" current_corrects="" current_superseded=""
         fi
         if [[ "$line" =~ ^[[:space:]]*title:[[:space:]]*\"?(.+?)\"?$ ]]; then
@@ -110,7 +110,7 @@ if [[ -n "$TOPIC" ]]; then
 
     # Print last entry
     if [[ -n "$current_id" ]]; then
-        local marker=""
+        marker=""
         if [[ "$current_superseded" != "null" && -n "$current_superseded" ]]; then
             marker=" [superseded by doc $current_superseded]"
         fi
