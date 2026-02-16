@@ -40,14 +40,17 @@ The value each team brings is their own accumulated intelligence — the reasoni
 │  SessionStart hook ──┬── git pull knowledge repo (background)       │
 │                      ├── archive previous session (background)      │
 │                      ├── index knowledge documents (background)     │
-│                      └── inject context (sessions + skills + docs)  │
+│                      ├── auto-create Project Understanding (bg)     │
+│                      └── inject context (progressions + sessions    │
+│                          + skills + docs)                           │
 │                                                                     │
 │  Stop hook ──────────┬── checkpoint session metadata                │
 │                      └── git commit+push knowledge (if changed)     │
 │                                                                     │
 │  /recall ────────────── FTS5 search (sessions + documents)          │
-│  /synthesize ────────── generate skills from recent sessions        │
-│  auto-synthesis ─────── triggers every N sessions automatically     │
+│  /progress ─────────── manage reasoning progressions                │
+│  /reflect ──────────── synthesize progression state via Opus        │
+│  auto-synthesis ─────── triggers every 2 sessions automatically     │
 └─────────────────────────────────────────────────────────────────────┘
          │                        │                        │
          ▼                        ▼                        ▼
@@ -56,13 +59,13 @@ The value each team brings is their own accumulated intelligence — the reasoni
 │   episodic.db   │  │  (raw sessions)  │  │                          │
 │                 │  │                  │  │  myproject/               │
 │  sessions       │  │  myproject/     │  │    skills/                │
-│  summaries      │  │    session1.jsonl│  │      validate-cost.md    │
-│  sessions_fts   │  │    session2.jsonl│  │    context.md            │
-│  documents      │  │  acme-app/      │  │  acme-app/               │
-│  documents_fts  │  │    session3.jsonl│  │    skills/               │
-│  synthesis_log  │  │                  │  │      api-optimization.md │
-│                 │  │                  │  │                          │
-│  (local cache,  │  │                  │  │                          │
+│  summaries      │  │    session1.jsonl│  │    progressions/          │
+│  sessions_fts   │  │    session2.jsonl│  │      project-understanding/│
+│  documents      │  │  acme-app/      │  │    context.md            │
+│  documents_fts  │  │    session3.jsonl│  │  acme-app/               │
+│  synthesis_log  │  │                  │  │    skills/               │
+│                 │  │                  │  │    progressions/          │
+│  (local cache,  │  │                  │  │      cost-analysis/       │
 │   regenerable)  │  │  (configurable   │  │    context.md            │
 │                 │  │   directory)     │  │                          │
 └─────────────────┘  └──────────────────┘  │  (git@github.com:you/    │
@@ -94,7 +97,7 @@ The value each team brings is their own accumulated intelligence — the reasoni
 │   ├── pi-progression-add              # Add a document to a progression
 │   ├── pi-progression-status           # Show progression state
 │   ├── pi-progression-conclude         # Mark progression as concluded
-│   └── episodic-*                      # Backward-compat symlinks → pi-*
+│   └── episodic-*                      # Backward-compat wrappers (same functionality as pi-*)
 ├── hooks/
 │   ├── on-session-start.sh             # SessionStart hook
 │   └── on-stop.sh                      # Stop hook
@@ -127,7 +130,7 @@ The value each team brings is their own accumulated intelligence — the reasoni
 Session ends → Stop hook fires
   → bin/episodic-archive --previous
     → lib/extract.sh: parse JSONL, filter out progress/snapshot events (~77% noise reduction)
-    → lib/summarize.sh: call Haiku, get structured JSON summary
+    → lib/summarize.sh: call Opus 4.5 (with extended thinking), get structured JSON summary
     → lib/db.sh: insert into SQLite (sessions + summaries + FTS5 index)
     → copy raw JSONL to archive directory
     → lib/knowledge.sh: commit + push if knowledge changed
@@ -152,38 +155,45 @@ SessionStart hook fires
   → bin/episodic-context                (output recent sessions + skills + docs for this project)
 ```
 
-The context block injected at session start looks like:
+The context block injected at session start includes (in order):
+
+1. **Progression behavioral instructions** — when and how to create progressions
+2. **Active progressions** — current position, corrections, open questions
+3. **Recent sessions** — last 3 session summaries for context continuity
+4. **Project skills** — pinned (manual), fresh (full content), aging (one-line)
+5. **Indexed documents** — listing of files in the knowledge repo
 
 ```markdown
+# Project Intelligence
+
+[behavioral instructions for progression tracking...]
+
+## Active Progressions
+
+### Cost Analysis
+*3 documents, active*
+**Current position:** API gateway is the top cost driver at $50K/yr...
+**Corrections:**
+- doc_02 corrects doc_01 (2026-02-13)
+**Open questions:**
+- Reserved capacity pricing for sustained usage
+
 # Recent Sessions (acme-app)
 
 ## 2026-02-12 (45m) [cost-analysis]
 Analyzed API gateway costs. Found $50K/yr on image processing.
 Decisions: Reduce payload size for non-critical endpoints
-Insights: Pricing varies significantly by request type and region
-
-## 2026-02-10 (30m) [main]
-Fixed container task definitions for background service.
-Decisions: Add auto-scaling policy
 
 # Project Skills (acme-app)
 
-## Pinned Skills (manually saved)
-
 ### deployment-checklist
 # Deployment Checklist
-1. Run tests locally
-2. Check staging environment
+## When to use
+Before any production deployment...
+## What to do
+1. Run tests locally: `npm test`
+2. Check staging: `curl https://staging.example.com/health`
 ...
-
-### api-optimization
-# API Cost Analysis Workflow
-When analyzing API costs for a service:
-1. Query billing data directly...
-2. Compare to estimated usage...
-
-## Older Skills (summary only, use /recall for details)
-- container-scaling: Auto-scaling checklist for container services
 ```
 
 ### 4. Document Indexing (automatic on session start)
@@ -233,14 +243,16 @@ The knowledge repo is a **separate Git repository** that you create and own. It 
 │   ├── skills/
 │   │   ├── validate-cost.md            # "Always validate estimates against billing data"
 │   │   └── query-pattern.md            # "How to query billing for a specific service"
-│   ├── progressions/                   # Reasoning chains (NEW)
+│   ├── progressions/                   # Reasoning chains
+│   │   ├── project-understanding/      # Auto-generated codebase analysis
+│   │   │   ├── progression.yaml
+│   │   │   └── 00_codebase-analysis.md
 │   │   └── data-model-strategy/
 │   │       ├── progression.yaml        # Metadata: topic, status, corrections, position
 │   │       ├── 00_initial-assessment.md
 │   │       ├── 01_thesis.md
 │   │       ├── 02_architecture.md
 │   │       └── 03_correction.md        # Corrects doc 01 with evidence
-│   ├── deep-dive.md                    # Codebase analysis
 │   └── context.md                      # Auto-generated project summary
 ├── acme-app/
 │   ├── skills/
@@ -277,9 +289,9 @@ Git gives you:
 
 ```bash
 # Create your knowledge repo on GitHub (private recommended)
-# Then configure episodic-memory to use it:
+# Then configure Project Intelligence to use it:
 
-pi-knowledge-init git@github.com:youruser/claude-knowledge.git
+pi-knowledge-init git@github.com:you/claude-knowledge.git
 ```
 
 This clones the repo to `~/.claude/knowledge/` and stores the URL in config.
@@ -326,14 +338,14 @@ estimates with real billing data before acting on them.
 
 ### How Synthesis Works
 
-1. `bin/episodic-synthesize` loads recent sessions for a project
+1. `pi-synthesize` loads raw session transcripts from JSONL archives (primary) + summaries (secondary)
 2. It loads any existing skills from the knowledge repo
-3. It calls Opus with a structured prompt:
-   - "Here are the last N sessions for project X"
-   - "Here are the existing skills"
-   - "Identify new patterns, update existing skills, or create new ones"
-4. Opus returns skill updates as structured JSON
-5. The tool writes/updates Markdown skill files
+3. It calls Opus 4.6 with extended thinking and a quality-first prompt:
+   - Raw transcripts provide exact commands, file paths, error messages, debugging steps
+   - Prompt enforces structured template: When to use, What to do, Gotchas, Why
+   - Skills must contain specific details — vague advice is rejected
+4. Opus returns skill actions (create, update, or delete) as structured JSON
+5. The tool writes/updates/deletes Markdown skill files
 6. Git commit + push
 
 ### When to Synthesize
@@ -477,7 +489,7 @@ The SQLite database is a **local cache**. It can be fully regenerated from:
 ### Install
 
 ```bash
-git clone git@github.com:youruser/claude-code-project-intelligence.git ~/.claude/project-intelligence
+git clone https://github.com/theaichimera/claude-code-project-intelligence.git ~/.claude/project-intelligence
 cd ~/.claude/project-intelligence
 ./install.sh
 ```
@@ -522,26 +534,24 @@ Removes hooks and skill symlinks. Optionally deletes DB (archives and knowledge 
 All config is in `lib/config.sh` with environment variable overrides:
 
 ```bash
-# Database location (local cache, regenerable)
-EPISODIC_DB="${EPISODIC_DB:-$HOME/.claude/memory/episodic.db}"
+# Paths (PI_* primary, EPISODIC_* backward compat)
+PI_DB="${PI_DB:-$HOME/.claude/memory/episodic.db}"                     # SQLite (local cache)
+PI_ARCHIVE_DIR="${PI_ARCHIVE_DIR:-$HOME/.claude/project-intelligence/archives}"
+PI_CLAUDE_PROJECTS="${PI_CLAUDE_PROJECTS:-$HOME/.claude/projects}"
+PI_KNOWLEDGE_DIR="${PI_KNOWLEDGE_DIR:-$HOME/.claude/knowledge}"        # local clone
+PI_KNOWLEDGE_REPO="${PI_KNOWLEDGE_REPO:-}"                             # git URL, set during install
 
-# Raw JSONL archive directory
-EPISODIC_ARCHIVE_DIR="${EPISODIC_ARCHIVE_DIR:-$HOME/.claude/episodic-memory/archives}"
+# Summary model (default: Opus 4.5 with extended thinking)
+EPISODIC_SUMMARY_MODEL="${EPISODIC_SUMMARY_MODEL:-claude-opus-4-5-20251101}"
+EPISODIC_SUMMARY_THINKING="${EPISODIC_SUMMARY_THINKING:-true}"
+EPISODIC_SUMMARY_THINKING_BUDGET="${EPISODIC_SUMMARY_THINKING_BUDGET:-10000}"
 
-# Claude projects directory (where sessions live)
-EPISODIC_CLAUDE_PROJECTS="${EPISODIC_CLAUDE_PROJECTS:-$HOME/.claude/projects}"
+# Skill synthesis model (Opus 4.6 with extended thinking)
+EPISODIC_OPUS_MODEL="${EPISODIC_OPUS_MODEL:-claude-opus-4-6}"
+EPISODIC_SYNTHESIZE_THINKING_BUDGET="${EPISODIC_SYNTHESIZE_THINKING_BUDGET:-16000}"
 
-# Knowledge repo (Git-backed, the source of truth for skills)
-EPISODIC_KNOWLEDGE_REPO="${EPISODIC_KNOWLEDGE_REPO:-}"  # git URL, set during install
-EPISODIC_KNOWLEDGE_DIR="${EPISODIC_KNOWLEDGE_DIR:-$HOME/.claude/knowledge}"  # local clone
-
-# Summary model (default: Opus 4.6 with extended thinking)
-EPISODIC_SUMMARY_MODEL="${EPISODIC_SUMMARY_MODEL:-claude-opus-4-6-20260205}"
-EPISODIC_SUMMARY_THINKING="${EPISODIC_SUMMARY_THINKING:-true}"       # enable extended thinking
-EPISODIC_SUMMARY_THINKING_BUDGET="${EPISODIC_SUMMARY_THINKING_BUDGET:-10000}"  # thinking tokens
-
-# Skill synthesis model
-EPISODIC_OPUS_MODEL="${EPISODIC_OPUS_MODEL:-claude-opus-4-6-20260205}"
+# Deep dive / codebase analysis model
+EPISODIC_DEEP_DIVE_MODEL="${EPISODIC_DEEP_DIVE_MODEL:-claude-opus-4-6}"
 
 # Vision model for PDF/image OCR during document indexing
 EPISODIC_INDEX_VISION_MODEL="${EPISODIC_INDEX_VISION_MODEL:-claude-haiku-4-5-20251001}"
@@ -715,9 +725,9 @@ Tests use temporary databases in `/tmp` and clean up after themselves. No API ke
 | Item | Cost |
 |------|------|
 | Backfill existing sessions (one-time, ~330 sessions) | ~$2-3 |
-| Per session summary (Haiku, ongoing) | ~$0.008 |
+| Per session summary (Opus 4.5 w/ thinking, ongoing) | ~$0.05-0.15 |
 | Skill synthesis (Opus, per invocation) | ~$0.10-0.50 |
-| Auto-synthesis (every 5 sessions) | ~$0.10-0.50 |
+| Auto-synthesis (every 2 sessions) | ~$0.10-0.50 |
 | Storage (SQLite DB) | ~10-20 MB |
 | Knowledge repo (GitHub) | Free (private repos are free) |
 
@@ -725,13 +735,13 @@ Tests use temporary databases in `/tmp` and clean up after themselves. No API ke
 
 ```bash
 # Machine 1: Full install + backfill
-git clone <this-repo> ~/.claude/project-intelligence
+git clone https://github.com/theaichimera/claude-code-project-intelligence.git ~/.claude/project-intelligence
 cd ~/.claude/project-intelligence && ./install.sh
 bin/pi-knowledge-init git@github.com:you/claude-knowledge.git
 bin/pi-backfill
 
 # Machine 2: Install + connect to same knowledge repo
-git clone <this-repo> ~/.claude/project-intelligence
+git clone https://github.com/theaichimera/claude-code-project-intelligence.git ~/.claude/project-intelligence
 cd ~/.claude/project-intelligence && ./install.sh
 bin/pi-knowledge-init git@github.com:you/claude-knowledge.git
 # Skills and context are immediately available
