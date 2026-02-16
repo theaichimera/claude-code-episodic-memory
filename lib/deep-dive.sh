@@ -318,6 +318,7 @@ episodic_deep_dive_write() {
 # Returns: 0 if exists, 1 if not
 episodic_deep_dive_exists() {
     local project="$1"
+    project=$(episodic_sanitize_name "$project")
     [[ -f "$EPISODIC_KNOWLEDGE_DIR/$project/deep-dive.md" ]]
 }
 
@@ -326,6 +327,7 @@ episodic_deep_dive_exists() {
 # Output: body of deep-dive.md without frontmatter
 episodic_deep_dive_read() {
     local project="$1"
+    project=$(episodic_sanitize_name "$project")
     local file="$EPISODIC_KNOWLEDGE_DIR/$project/deep-dive.md"
 
     if [[ ! -f "$file" ]]; then

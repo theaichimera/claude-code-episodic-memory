@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# pi-progression-init: Create a new knowledge progression
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/progression.sh"
+
+usage() {
+    cat <<EOF
+Usage: pi-progression-init --project PROJECT --topic "Topic Name"
+
+Create a new progression to track evolving understanding of a topic.
+
+Options:
+  --project NAME    Project name (required)
+  --topic TOPIC     Human-readable topic name (required)
+  -h, --help        Show this help
+
+Example:
+  pi-progression-init --project myapp --topic "ECS Task Placement Strategy"
+EOF
+}
+
+PROJECT=""
+TOPIC=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --project) PROJECT="$2"; shift 2 ;;
+        --topic) TOPIC="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+    esac
+done
+
+if [[ -z "$PROJECT" || -z "$TOPIC" ]]; then
+    echo "ERROR: --project and --topic are required" >&2
+    usage >&2
+    exit 1
+fi
+
+dir=$(pi_progression_create "$PROJECT" "$TOPIC")
+
+echo "Progression created: $TOPIC"
+echo "  Directory: $dir"
+echo "  Status: active"
+echo ""
+echo "Next: add documents with pi-progression-add"

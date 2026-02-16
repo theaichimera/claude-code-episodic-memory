@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# episodic-knowledge-sync: Git pull/push knowledge repo
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/knowledge.sh"
+
+mode="${1:-both}"
+episodic_knowledge_sync "$mode"

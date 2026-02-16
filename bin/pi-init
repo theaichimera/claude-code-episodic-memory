@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# episodic-init: Initialize the episodic memory database and directories
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/db.sh"
+
+echo "Initializing episodic memory..."
+
+# Create archive directory
+mkdir -p "$EPISODIC_ARCHIVE_DIR"
+echo "  Archive directory: $EPISODIC_ARCHIVE_DIR"
+
+# Create log directory
+mkdir -p "$(dirname "$EPISODIC_LOG")"
+
+# Initialize database
+episodic_db_init "$EPISODIC_DB"
+echo "  Database: $EPISODIC_DB"
+
+# Verify
+local_count=$(episodic_db_count)
+echo "  Sessions in DB: $local_count"
+echo "Done."

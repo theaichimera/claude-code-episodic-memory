@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+# episodic-context: Generate context for session start injection
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/db.sh"
+[[ -f "$BIN_DIR/../lib/knowledge.sh" ]] && source "$BIN_DIR/../lib/knowledge.sh"
+[[ -f "$BIN_DIR/../lib/progression.sh" ]] && source "$BIN_DIR/../lib/progression.sh"
+
+usage() {
+    cat <<EOF
+Usage: episodic-context [OPTIONS]
+
+Generate recent session context for the current project.
+
+Options:
+  --project NAME      Project name (default: derived from CWD)
+  --count N           Number of recent sessions (default: $EPISODIC_CONTEXT_COUNT)
+  --format FORMAT     Output format: text (default), json
+  -h, --help          Show this help
+EOF
+}
+
+PROJECT=""
+COUNT="$EPISODIC_CONTEXT_COUNT"
+FORMAT="text"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --project) PROJECT="$2"; shift 2 ;;
+        --count) COUNT="$2"; shift 2 ;;
+        --format) FORMAT="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+
+# Derive project from CWD if not specified
+if [[ -z "$PROJECT" ]]; then
+    PROJECT=$(basename "${CWD:-$(pwd)}")
+fi
+
+# Escape for SQL single-quote interpolation
+SAFE_PROJECT=$(episodic_sql_escape "$PROJECT")
+
+# Check DB exists
+if [[ ! -f "$EPISODIC_DB" ]]; then
+    exit 0
+fi
+
+# Get recent sessions
+results=$(episodic_db_recent "$PROJECT" "$COUNT")
+
+if [[ -z "$results" || "$results" == "[]" ]]; then
+    exit 0
+fi
+
+if [[ "$FORMAT" == "json" ]]; then
+    echo "$results"
+    exit 0
+fi
+
+# Project Intelligence behavioral instructions
+cat <<'PIINSTRUCTIONS'
+# Project Intelligence
+
+You have a progression tracking system. Progressions capture how understanding evolves — not just conclusions, but corrections and reasoning.
+
+**Create a progression when ANY of these happen:**
+- You produce 2+ related documents or analyses in one session
+- The user asks you to research, compare, evaluate, or design something
+- You discover something that contradicts a previous finding
+- The user says "remember this", "track this", or "let's dig into this"
+- The work will clearly span multiple sessions
+
+**Do NOT create a progression for:**
+- Simple bug fixes, one-off questions, or quick tasks
+- Work that produces a single file and is done
+
+**When you create one:** Save each significant finding as a numbered document. Mark corrections explicitly — they're the most valuable part. At the end of a multi-document session, briefly note what changed and what's still open.
+
+**Commands (all via Bash tool, NEVER use Write tool for progressions):**
+
+```bash
+# Start a progression
+pi-progression-init --project PROJECT --topic "Topic"
+
+# Add a document — use heredoc pipe, single Bash call
+cat <<'DOC' | pi-progression-add --project PROJECT --topic TOPIC --number NN --title "Title" --type TYPE --file -
+# Your Document Title
+
+Your content here. Markdown format.
+DOC
+
+# Add a correction
+cat <<'DOC' | pi-progression-add --project PROJECT --topic TOPIC --number NN --title "Title" --type correction --corrects PREV_NN --file -
+Content...
+DOC
+
+# Check status
+pi-progression-status --project PROJECT
+```
+
+IMPORTANT: Always use a SINGLE Bash call with heredoc pipe. Do NOT use the Write tool. Do NOT write to /tmp. The --file - flag reads from stdin.
+PROJECT = basename of current working directory.
+Types: baseline, deepening, correction, pivot, synthesis.
+PIINSTRUCTIONS
+echo ""
+
+# Output active progressions for this project (highest-value context, goes first)
+if type pi_progression_generate_context &>/dev/null; then
+    prog_context=$(pi_progression_generate_context "$PROJECT" 2>/dev/null)
+    if [[ -n "$prog_context" ]]; then
+        echo "$prog_context"
+        echo ""
+    fi
+fi
+
+# Format as text block for context injection
+echo "# Recent Sessions (${PROJECT})"
+echo ""
+
+echo "$results" | jq -r '
+    .[] |
+    "## \(.created_at // "?") (\(.duration_minutes // 0)m)\(if .git_branch != "" and .git_branch != null then " [" + .git_branch + "]" else "" end)",
+    (.summary // "No summary available"),
+    "",
+    (if .topics != null and .topics != "[]" then
+        "Topics: " + (.topics | fromjson? // [.] | join(", "))
+    else empty end),
+    (if .decisions != null and .decisions != "[]" then
+        "Decisions: " + (.decisions | fromjson? // [.] | join(", "))
+    else empty end),
+    (if .key_insights != null and .key_insights != "[]" then
+        "Insights: " + (.key_insights | fromjson? // [.] | join(", "))
+    else empty end),
+    ""
+' 2>/dev/null
+
+# Output project skills from knowledge repo with decay-based injection
+if type episodic_knowledge_is_configured &>/dev/null && episodic_knowledge_is_configured; then
+    skills=$(episodic_knowledge_list_skills "$PROJECT" 2>/dev/null)
+    if [[ -n "$skills" ]]; then
+        now_epoch=$(date +%s)
+        fresh_seconds=$(( ${EPISODIC_SKILL_FRESH_DAYS:-30} * 86400 ))
+        aging_seconds=$(( ${EPISODIC_SKILL_AGING_DAYS:-90} * 86400 ))
+
+        manual_skills=""
+        fresh_skills=""
+        aging_skills=""
+
+        while IFS= read -r skill_name; do
+            skill_file="$EPISODIC_KNOWLEDGE_DIR/$PROJECT/skills/${skill_name}.md"
+            [[ -f "$skill_file" ]] || continue
+
+            # Check if manually created (always full content, never decays)
+            skill_source=$(grep '^source:' "$skill_file" 2>/dev/null | head -1 | sed 's/^source: *//')
+            if [[ "$skill_source" == "manual" ]]; then
+                content=$(awk 'BEGIN{f=0} /^---$/{f++; next} f>=2' "$skill_file" 2>/dev/null)
+                manual_skills+="### ${skill_name}"$'\n'"${content}"$'\n\n'
+                continue
+            fi
+
+            # Parse generated date from YAML frontmatter
+            gen_date=$(grep '^generated:' "$skill_file" 2>/dev/null | head -1 | sed 's/^generated: *//')
+            if [[ -n "$gen_date" ]]; then
+                # Convert YYYY-MM-DD to epoch (cross-platform)
+                if date -j -f "%Y-%m-%d" "$gen_date" +%s &>/dev/null; then
+                    # macOS
+                    gen_epoch=$(date -j -f "%Y-%m-%d" "$gen_date" +%s)
+                elif date -d "$gen_date" +%s &>/dev/null; then
+                    # Linux (GNU date)
+                    gen_epoch=$(date -d "$gen_date" +%s)
+                else
+                    gen_epoch=0
+                fi
+            else
+                gen_epoch=0
+            fi
+
+            age_seconds=$(( now_epoch - gen_epoch ))
+
+            if [[ $age_seconds -le $fresh_seconds ]]; then
+                # Fresh: inject full content (strip frontmatter)
+                content=$(awk 'BEGIN{f=0} /^---$/{f++; next} f>=2' "$skill_file" 2>/dev/null)
+                fresh_skills+="### ${skill_name}"$'\n'"${content}"$'\n\n'
+            elif [[ $age_seconds -le $aging_seconds ]]; then
+                # Aging: one-line summary
+                desc=$(sed -n '/^---$/,/^---$/d; /^#/{s/^# *//;p;q;}' "$skill_file" 2>/dev/null || echo "$skill_name")
+                aging_skills+="- ${skill_name}: ${desc}"$'\n'
+            fi
+            # Stale (>90 days): omitted entirely, still searchable via /recall
+        done <<< "$skills"
+
+        if [[ -n "$manual_skills" || -n "$fresh_skills" || -n "$aging_skills" ]]; then
+            echo ""
+            echo "# Project Skills (${PROJECT})"
+        fi
+
+        if [[ -n "$manual_skills" ]]; then
+            echo ""
+            echo "## Pinned Skills (manually saved)"
+            echo ""
+            printf '%s' "$manual_skills"
+        fi
+
+        if [[ -n "$fresh_skills" ]]; then
+            echo ""
+            printf '%s' "$fresh_skills"
+        fi
+
+        if [[ -n "$aging_skills" ]]; then
+            echo ""
+            echo "## Older Skills (summary only, use /recall for details)"
+            echo ""
+            printf '%s' "$aging_skills"
+            echo ""
+        fi
+    fi
+fi
+
+# Deep-dive is now part of progressions (project-understanding), injected above
+
+# Output indexed documents for project if available
+doc_count=$(episodic_db_exec "SELECT count(*) FROM documents WHERE project='$SAFE_PROJECT';" 2>/dev/null || echo "0")
+if [[ "$doc_count" -gt 0 ]]; then
+    echo ""
+    echo "# Project Documents (${PROJECT})"
+    echo ""
+    episodic_db_exec "
+        SELECT file_name, title, file_type, file_size
+        FROM documents
+        WHERE project='$SAFE_PROJECT'
+        ORDER BY file_name;
+    " 2>/dev/null | while IFS='|' read -r fname title ftype fsize; do
+        size_kb=$(( ${fsize:-0} / 1024 ))
+        echo "- ${fname} (${ftype:-unknown}, ${size_kb}KB): ${title:-$fname}"
+    done
+    echo ""
+fi

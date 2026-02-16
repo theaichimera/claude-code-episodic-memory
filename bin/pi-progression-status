@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# pi-progression-status: Show progression state
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/progression.sh"
+
+usage() {
+    cat <<EOF
+Usage: pi-progression-status --project PROJECT [--topic TOPIC]
+
+Show the state of one or all progressions for a project.
+
+Options:
+  --project NAME    Project name (required)
+  --topic TOPIC     Show details for a specific topic (optional)
+  -h, --help        Show this help
+
+If --topic is omitted, lists all progressions for the project.
+If --topic is given, shows full details including documents.
+
+Example:
+  pi-progression-status --project myapp
+  pi-progression-status --project myapp --topic "ECS Task Placement"
+EOF
+}
+
+PROJECT=""
+TOPIC=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --project) PROJECT="$2"; shift 2 ;;
+        --topic) TOPIC="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+    esac
+done
+
+if [[ -z "$PROJECT" ]]; then
+    echo "ERROR: --project is required" >&2
+    usage >&2
+    exit 1
+fi
+
+if [[ -n "$TOPIC" ]]; then
+    # Show detailed info for a single progression
+    yaml_content=$(pi_progression_get "$PROJECT" "$TOPIC")
+    if [[ $? -ne 0 ]]; then
+        echo "ERROR: Progression not found: $PROJECT / $TOPIC" >&2
+        exit 1
+    fi
+
+    # Parse and display formatted
+    dir=$(_pi_progression_dir "$PROJECT" "$TOPIC")
+    topic_display=$(_pi_yaml_get "$dir/progression.yaml" "topic" 2>/dev/null || echo "$TOPIC")
+    status=$(_pi_yaml_get "$dir/progression.yaml" "status" 2>/dev/null || echo "unknown")
+    created=$(_pi_yaml_get "$dir/progression.yaml" "created" 2>/dev/null || echo "unknown")
+    updated=$(_pi_yaml_get "$dir/progression.yaml" "updated" 2>/dev/null || echo "unknown")
+    current_pos=$(_pi_yaml_get "$dir/progression.yaml" "current_position" 2>/dev/null || echo "")
+
+    echo "Progression: $topic_display"
+    echo "  Project:  $PROJECT"
+    echo "  Status:   $status"
+    echo "  Created:  $created"
+    echo "  Updated:  $updated"
+    if [[ -n "$current_pos" ]]; then
+        echo "  Position: $current_pos"
+    fi
+    echo ""
+
+    # List documents
+    echo "Documents:"
+    in_docs=0
+    current_id="" current_title="" current_file="" current_type="" current_corrects="" current_superseded=""
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*id:[[:space:]]*\"?([0-9]+)\"? ]]; then
+            # Print previous entry if we have one
+            if [[ -n "$current_id" ]]; then
+                marker=""
+                if [[ "$current_superseded" != "null" && -n "$current_superseded" ]]; then
+                    marker=" [superseded by doc $current_superseded]"
+                fi
+                if [[ "$current_corrects" != "null" && -n "$current_corrects" ]]; then
+                    marker+=" [corrects doc $current_corrects]"
+                fi
+                printf '  %s. %s (%s)%s\n' "$current_id" "$current_title" "$current_type" "$marker"
+            fi
+            current_id=$(printf '%02d' "$((10#${BASH_REMATCH[1]}))")
+            current_title="" current_file="" current_type="" current_corrects="" current_superseded=""
+        fi
+        if [[ "$line" =~ ^[[:space:]]*title:[[:space:]]*\"?(.+?)\"?$ ]]; then
+            current_title="${BASH_REMATCH[1]}"
+            current_title="${current_title%\"}"
+        fi
+        if [[ "$line" =~ ^[[:space:]]*type:[[:space:]]*(.*) ]]; then
+            current_type="${BASH_REMATCH[1]}"
+        fi
+        if [[ "$line" =~ ^[[:space:]]*corrects:[[:space:]]*(.*) ]]; then
+            current_corrects="${BASH_REMATCH[1]}"
+            current_corrects="${current_corrects#\"}"
+            current_corrects="${current_corrects%\"}"
+        fi
+        if [[ "$line" =~ ^[[:space:]]*superseded_by:[[:space:]]*(.*) ]]; then
+            current_superseded="${BASH_REMATCH[1]}"
+            current_superseded="${current_superseded#\"}"
+            current_superseded="${current_superseded%\"}"
+        fi
+    done < "$dir/progression.yaml"
+
+    # Print last entry
+    if [[ -n "$current_id" ]]; then
+        marker=""
+        if [[ "$current_superseded" != "null" && -n "$current_superseded" ]]; then
+            marker=" [superseded by doc $current_superseded]"
+        fi
+        if [[ "$current_corrects" != "null" && -n "$current_corrects" ]]; then
+            marker+=" [corrects doc $current_corrects]"
+        fi
+        printf '  %s. %s (%s)%s\n' "$current_id" "$current_title" "$current_type" "$marker"
+    fi
+
+    echo ""
+    echo "Full YAML: $dir/progression.yaml"
+else
+    # List all progressions
+    listing=$(pi_progression_list "$PROJECT")
+    if [[ -z "$listing" ]]; then
+        echo "No progressions found for project: $PROJECT"
+        exit 0
+    fi
+
+    echo "Progressions for $PROJECT:"
+    echo ""
+    printf '  %-30s %-12s %s\n' "SLUG" "STATUS" "TOPIC"
+    printf '  %-30s %-12s %s\n' "----" "------" "-----"
+    while IFS=$'\t' read -r slug status topic; do
+        printf '  %-30s %-12s %s\n' "$slug" "$status" "$topic"
+    done <<< "$listing"
+fi

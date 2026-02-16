@@ -175,6 +175,7 @@ episodic_knowledge_read_skill() {
 # Output: one skill name per line (without .md extension)
 episodic_knowledge_list_skills() {
     local project="$1"
+    project=$(episodic_sanitize_name "$project")
     local skills_dir="$EPISODIC_KNOWLEDGE_DIR/$project/skills"
 
     if [[ ! -d "$skills_dir" ]]; then
@@ -206,6 +207,7 @@ episodic_knowledge_write_context() {
 # Usage: episodic_knowledge_read_context <project>
 episodic_knowledge_read_context() {
     local project="$1"
+    project=$(episodic_sanitize_name "$project")
     local context_file="$EPISODIC_KNOWLEDGE_DIR/$project/context.md"
 
     if [[ ! -f "$context_file" ]]; then

@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
-# episodic-memory: configuration
-# All paths and defaults, overridable via environment variables
+# project-intelligence: configuration
+# All paths and defaults, overridable via environment variables.
+# Supports both PI_* (primary) and EPISODIC_* (backward compat) variable names.
 
-EPISODIC_ROOT="${EPISODIC_ROOT:-$HOME/.claude/episodic-memory}"
-EPISODIC_DB="${EPISODIC_DB:-$HOME/.claude/memory/episodic.db}"
-EPISODIC_ARCHIVE_DIR="${EPISODIC_ARCHIVE_DIR:-$HOME/.claude/episodic-memory/archives}"
-EPISODIC_CLAUDE_PROJECTS="${EPISODIC_CLAUDE_PROJECTS:-$HOME/.claude/projects}"
+# PI_* aliases (primary, fall back to EPISODIC_* for backward compat)
+PI_ROOT="${PI_ROOT:-${EPISODIC_ROOT:-$HOME/.claude/project-intelligence}}"
+PI_DB="${PI_DB:-${EPISODIC_DB:-$HOME/.claude/memory/episodic.db}}"
+PI_ARCHIVE_DIR="${PI_ARCHIVE_DIR:-${EPISODIC_ARCHIVE_DIR:-$HOME/.claude/project-intelligence/archives}}"
+PI_CLAUDE_PROJECTS="${PI_CLAUDE_PROJECTS:-${EPISODIC_CLAUDE_PROJECTS:-$HOME/.claude/projects}}"
+PI_KNOWLEDGE_DIR="${PI_KNOWLEDGE_DIR:-${EPISODIC_KNOWLEDGE_DIR:-$HOME/.claude/knowledge}}"
+PI_KNOWLEDGE_REPO="${PI_KNOWLEDGE_REPO:-${EPISODIC_KNOWLEDGE_REPO:-}}"
+PI_LOG="${PI_LOG:-${EPISODIC_LOG:-$HOME/.claude/memory/episodic.log}}"
+
+# Backward compat: keep EPISODIC_* in sync
+EPISODIC_ROOT="$PI_ROOT"
+EPISODIC_DB="$PI_DB"
+EPISODIC_ARCHIVE_DIR="$PI_ARCHIVE_DIR"
+EPISODIC_CLAUDE_PROJECTS="$PI_CLAUDE_PROJECTS"
 
 # Summary model: used for session summarization
 # Default: Opus 4.5 with extended thinking. Override with any Anthropic model ID.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A self-contained episodic memory system for Claude Code, implemented entirely in Bash. It archives session transcripts, generates searchable summaries via the Anthropic API, synthesizes reusable skills from session patterns, and manages a Git-backed knowledge repo for cross-machine persistence.
+Project Intelligence: a learning system for Claude Code that gets smarter within every project over time. Implemented entirely in Bash. Archives session transcripts, generates searchable summaries, synthesizes reusable skills, tracks reasoning progressions, and manages a Git-backed knowledge repo for cross-machine persistence. Also a Claude Code plugin (`.claude-plugin/plugin.json`).
 
 ## Development Commands
 

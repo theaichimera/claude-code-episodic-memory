@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# pi-progression-add: Add a document to a knowledge progression
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/progression.sh"
+
+usage() {
+    cat <<EOF
+Usage: pi-progression-add --project PROJECT --topic TOPIC --number NN --title "Title" --type TYPE [OPTIONS]
+
+Add a document to an existing progression.
+
+Required:
+  --project NAME    Project name
+  --topic TOPIC     Topic name (or slug)
+  --number NN       Document number (e.g., 0, 1, 2)
+  --title TITLE     Document title
+  --type TYPE       Document type: baseline, deepening, correction, pivot, synthesis
+
+Options:
+  --corrects NN     Mark this document as correcting document NN
+  --file PATH       Path to content file (use "-" for stdin)
+  -h, --help        Show this help
+
+If --file is not provided, creates a stub document with the title as a header.
+
+Example:
+  pi-progression-add --project myapp --topic "ECS Task Placement" \\
+    --number 0 --title "Initial Analysis" --type baseline --file ./analysis.md
+
+  pi-progression-add --project myapp --topic "ECS Task Placement" \\
+    --number 2 --title "Corrected Placement" --type correction --corrects 1
+EOF
+}
+
+PROJECT=""
+TOPIC=""
+NUMBER=""
+TITLE=""
+TYPE=""
+CORRECTS=""
+FILE=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --project) PROJECT="$2"; shift 2 ;;
+        --topic) TOPIC="$2"; shift 2 ;;
+        --number) NUMBER="$2"; shift 2 ;;
+        --title) TITLE="$2"; shift 2 ;;
+        --type) TYPE="$2"; shift 2 ;;
+        --corrects) CORRECTS="$2"; shift 2 ;;
+        --file) FILE="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+    esac
+done
+
+if [[ -z "$PROJECT" || -z "$TOPIC" || -z "$NUMBER" || -z "$TITLE" || -z "$TYPE" ]]; then
+    echo "ERROR: --project, --topic, --number, --title, --type are required" >&2
+    usage >&2
+    exit 1
+fi
+
+# Validate type
+case "$TYPE" in
+    baseline|deepening|correction|pivot|synthesis) ;;
+    *)
+        echo "ERROR: Invalid document type: $TYPE" >&2
+        echo "  Valid types: baseline, deepening, correction, pivot, synthesis" >&2
+        exit 1
+        ;;
+esac
+
+# Add the document
+doc_path=$(pi_progression_add "$PROJECT" "$TOPIC" "$NUMBER" "$TITLE" "$TYPE" "$FILE")
+
+echo "Document added to progression:"
+echo "  File: $doc_path"
+echo "  Number: $(printf '%02d' "$NUMBER")"
+echo "  Type: $TYPE"
+
+# If --corrects was provided, mark the correction relationship
+if [[ -n "$CORRECTS" ]]; then
+    pi_progression_mark_correction "$PROJECT" "$TOPIC" "$NUMBER" "$CORRECTS"
+    echo "  Corrects: document $(printf '%02d' "$CORRECTS")"
+fi

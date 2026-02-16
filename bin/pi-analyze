@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# pi-analyze: Generate codebase analysis as a progression baseline
+# Replaces the standalone deep-dive with a progression-based approach.
+# The analysis becomes doc 00 of a "Project Understanding" progression.
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/deep-dive.sh"
+source "$BIN_DIR/../lib/progression.sh"
+[[ -f "$BIN_DIR/../lib/knowledge.sh" ]] && source "$BIN_DIR/../lib/knowledge.sh"
+
+TOPIC="Project Understanding"
+
+usage() {
+    cat <<EOF
+Usage: pi-analyze [OPTIONS]
+
+Generate a comprehensive codebase analysis as the baseline document (00)
+of a "Project Understanding" progression.
+
+Options:
+  --project NAME      Project name (default: derived from --path or CWD)
+  --path PATH         Project directory path (default: CWD)
+  --refresh           Update: add a new deepening document to the progression
+  --force             Regenerate doc 00 even if progression exists
+  --dry-run           Show collected context without calling API
+  -h, --help          Show this help
+
+The analysis covers: overview, tech stack, architecture, directory structure,
+entry points, key patterns, dependencies, deployment, dev workflow, and gotchas.
+
+Stored at: ~/.claude/knowledge/<project>/progressions/project-understanding/
+EOF
+}
+
+PROJECT=""
+PROJECT_PATH=""
+REFRESH=""
+FORCE=""
+DRY_RUN=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --project) PROJECT="$2"; shift 2 ;;
+        --path) PROJECT_PATH="$2"; shift 2 ;;
+        --refresh) REFRESH="true"; shift ;;
+        --force) FORCE="true"; shift ;;
+        --dry-run) DRY_RUN="true"; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+
+if [[ -z "$PROJECT_PATH" ]]; then
+    PROJECT_PATH="${CWD:-$(pwd)}"
+fi
+
+if [[ -z "$PROJECT" ]]; then
+    PROJECT=$(basename "$PROJECT_PATH")
+fi
+
+if [[ ! -d "$PROJECT_PATH" ]]; then
+    echo "ERROR: Project path does not exist: $PROJECT_PATH" >&2
+    exit 1
+fi
+
+# Dry run
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo "=== DRY RUN: Codebase Analysis for $PROJECT ==="
+    echo "Project: $PROJECT"
+    echo "Path: $PROJECT_PATH"
+    echo ""
+    echo "=== Collected Context ==="
+    episodic_deep_dive_collect_context "$PROJECT_PATH"
+    echo ""
+    echo "Would call ${EPISODIC_DEEP_DIVE_MODEL} API and create progression: $TOPIC"
+    exit 0
+fi
+
+# Check if progression already exists
+prog_dir=$(_pi_progression_dir "$PROJECT" "$TOPIC")
+if [[ -d "$prog_dir" && "$FORCE" != "true" && "$REFRESH" != "true" ]]; then
+    echo "Project Understanding progression already exists for $PROJECT."
+    echo "  Use --refresh to add an updated analysis, or --force to regenerate."
+    exit 0
+fi
+
+if [[ "$REFRESH" == "true" && -d "$prog_dir" ]]; then
+    # Refresh mode: add a new deepening document
+    # Count existing docs to determine next number
+    doc_count=0
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*-[[:space:]]*id: ]] && doc_count=$((doc_count + 1))
+    done < "$prog_dir/progression.yaml"
+
+    echo "Refreshing codebase analysis for $PROJECT (adding doc $doc_count)..."
+    echo "  Path: $PROJECT_PATH"
+    echo "  Model: $EPISODIC_DEEP_DIVE_MODEL"
+
+    content=$(episodic_deep_dive_generate "$PROJECT" "$PROJECT_PATH" "--refresh")
+    if [[ -z "$content" ]]; then
+        echo "ERROR: Failed to generate analysis" >&2
+        exit 1
+    fi
+
+    # Write to temp file and add as deepening document
+    tmp_content=$(mktemp)
+    trap 'rm -f "$tmp_content"' EXIT
+    printf '%s\n' "$content" > "$tmp_content"
+    pi_progression_add "$PROJECT" "$TOPIC" "$doc_count" "Updated Codebase Analysis" "deepening" "$tmp_content"
+    rm -f "$tmp_content"
+
+    echo "Added updated analysis as doc $doc_count in Project Understanding progression."
+else
+    # Create or force-regenerate
+    if [[ "$FORCE" == "true" && -d "$prog_dir" ]]; then
+        # Remove existing progression for force regeneration
+        rm -rf "$prog_dir"
+    fi
+
+    echo "Generating codebase analysis for $PROJECT..."
+    echo "  Path: $PROJECT_PATH"
+    echo "  Model: $EPISODIC_DEEP_DIVE_MODEL"
+
+    content=$(episodic_deep_dive_generate "$PROJECT" "$PROJECT_PATH")
+    if [[ -z "$content" ]]; then
+        echo "ERROR: Failed to generate analysis" >&2
+        exit 1
+    fi
+
+    # Create the progression
+    pi_progression_create "$PROJECT" "$TOPIC" >/dev/null
+
+    # Write content to temp file and add as baseline
+    tmp_content=$(mktemp)
+    trap 'rm -f "$tmp_content"' EXIT
+    printf '%s\n' "$content" > "$tmp_content"
+    pi_progression_add "$PROJECT" "$TOPIC" 0 "Codebase Analysis" "baseline" "$tmp_content"
+    rm -f "$tmp_content"
+
+    echo "Created Project Understanding progression with codebase analysis as doc 00."
+    echo "  Location: $prog_dir"
+fi
+
+# Push to knowledge repo if configured
+if type episodic_knowledge_is_configured &>/dev/null && episodic_knowledge_is_configured; then
+    episodic_knowledge_push "Analyze: $PROJECT" 2>/dev/null || true
+    echo "Pushed to knowledge repo."
+fi

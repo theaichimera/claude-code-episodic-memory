@@ -1,0 +1,12 @@
+{
+  "name": "pi",
+  "version": "1.0.0",
+  "description": "Project Intelligence: Persistent learning system for Claude Code. Episodic memory, skill synthesis, and reasoning progressions — gets smarter within every project over time.",
+  "author": {
+    "name": "theaichimera",
+    "url": "https://github.com/theaichimera"
+  },
+  "repository": "https://github.com/theaichimera/claude-code-project-intelligence",
+  "license": "MIT",
+  "keywords": ["memory", "learning", "skills", "progressions", "knowledge"]
+}

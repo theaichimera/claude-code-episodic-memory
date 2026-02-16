@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# pi-progression-conclude: Mark a progression as concluded
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/progression.sh"
+
+usage() {
+    cat <<EOF
+Usage: pi-progression-conclude --project PROJECT --topic TOPIC [--park]
+
+Mark a progression as concluded (investigation complete) or parked (paused).
+
+Options:
+  --project NAME    Project name (required)
+  --topic TOPIC     Topic name (required)
+  --park            Park instead of conclude (can be resumed later)
+  -h, --help        Show this help
+
+Example:
+  pi-progression-conclude --project myapp --topic "ECS Task Placement"
+  pi-progression-conclude --project myapp --topic "ECS Task Placement" --park
+EOF
+}
+
+PROJECT=""
+TOPIC=""
+STATUS="concluded"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --project) PROJECT="$2"; shift 2 ;;
+        --topic) TOPIC="$2"; shift 2 ;;
+        --park) STATUS="parked"; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+    esac
+done
+
+if [[ -z "$PROJECT" || -z "$TOPIC" ]]; then
+    echo "ERROR: --project and --topic are required" >&2
+    usage >&2
+    exit 1
+fi
+
+pi_progression_update_status "$PROJECT" "$TOPIC" "$STATUS"
+
+if [[ "$STATUS" == "concluded" ]]; then
+    echo "Progression concluded: $TOPIC"
+    echo "  This progression will no longer be injected into session context."
+    echo "  Documents remain available for /recall searches."
+else
+    echo "Progression parked: $TOPIC"
+    echo "  This progression will not be injected into session context."
+    echo "  Resume with: pi-progression-conclude --project $PROJECT --topic \"$TOPIC\" (then manually set status to active)"
+fi
