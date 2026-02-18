@@ -235,8 +235,8 @@ Generate the deep-dive document."
 
     local response
     response=$(curl -s --max-time "$timeout" \
-        https://api.anthropic.com/v1/messages \
-        -H "x-api-key: $ANTHROPIC_API_KEY" \
+        "$EPISODIC_API_BASE_URL/v1/messages" \
+        -H "x-api-key: $EPISODIC_API_KEY" \
         -H "anthropic-version: 2023-06-01" \
         -H "content-type: application/json" \
         -d "$request_json" 2>/dev/null)

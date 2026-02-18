@@ -76,10 +76,20 @@ PI_PATTERNS_TRANSCRIPT_COUNT="${PI_PATTERNS_TRANSCRIPT_COUNT:-10}"
 PI_PATTERNS_TRANSCRIPT_CHARS="${PI_PATTERNS_TRANSCRIPT_CHARS:-20000}"
 PI_PATTERNS_WEIGHT_CAP="${PI_PATTERNS_WEIGHT_CAP:-2.0}"
 
+# Anthropic API configuration
+# Base URL for API requests (supports custom endpoints like proxies)
+# Default: official Anthropic API
+EPISODIC_API_BASE_URL="${EPISODIC_API_BASE_URL:-${ANTHROPIC_BASE_URL:-https://api.anthropic.com}}"
+# Strip trailing slash if present
+EPISODIC_API_BASE_URL="${EPISODIC_API_BASE_URL%/}"
+
+# API key (checks ANTHROPIC_AUTH_TOKEN first for custom endpoint compatibility)
+EPISODIC_API_KEY="${ANTHROPIC_AUTH_TOKEN:-${ANTHROPIC_API_KEY:-}}"
+
 # Ensure the API key is available
 episodic_require_api_key() {
-    if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-        echo "ERROR: ANTHROPIC_API_KEY not set" >&2
+    if [[ -z "$EPISODIC_API_KEY" ]]; then
+        echo "ERROR: ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN not set" >&2
         return 1
     fi
 }

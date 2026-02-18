@@ -258,7 +258,7 @@ episodic_db_insert_session() {
     # Use printf to temp file to avoid shell expansion in heredocs.
     # Values are SQL-escaped but could contain $() or backticks from user content.
     local sql_file
-    sql_file=$(mktemp)
+    sql_file=$(mktemp) || { echo "Failed to create temp file" >&2; return 1; }
 
     {
         printf ".timeout ${EPISODIC_BUSY_TIMEOUT}\n"
@@ -327,7 +327,7 @@ episodic_db_insert_summary() {
     # Summary text and first_prompt can be substantial; writing through
     # printf to a file bypasses heredoc expansion limitations.
     local sql_file
-    sql_file=$(mktemp)
+    sql_file=$(mktemp) || { echo "Failed to create temp file" >&2; return 1; }
     trap 'rm -f "$sql_file"' RETURN
 
     {

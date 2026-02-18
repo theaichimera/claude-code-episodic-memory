@@ -190,7 +190,7 @@ episodic_index_file() {
     # The extracted_text can be up to 100KB; heredoc expansion through bash
     # is fragile at that size. Writing to a file bypasses this.
     local sql_file
-    sql_file=$(mktemp)
+    sql_file=$(mktemp) || { echo "Failed to create temp file" >&2; return 1; }
     trap 'rm -f "$sql_file"' RETURN
 
     {

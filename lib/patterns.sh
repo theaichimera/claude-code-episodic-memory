@@ -85,7 +85,7 @@ pi_patterns_write() {
     now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     local sql_file
-    sql_file=$(mktemp)
+    sql_file=$(mktemp) || { echo "Failed to create temp file" >&2; return 1; }
 
     if [[ "$exists" -gt 0 ]]; then
         # Update existing pattern
@@ -189,7 +189,7 @@ pi_patterns_add_evidence() {
     now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     local sql_file
-    sql_file=$(mktemp)
+    sql_file=$(mktemp) || { echo "Failed to create temp file" >&2; return 1; }
 
     {
         printf ".timeout ${EPISODIC_BUSY_TIMEOUT}\n"
@@ -588,8 +588,8 @@ Generate the JSON array of pattern actions. Remember: cross-project behavioral p
 
     local response
     response=$(curl -s --max-time 300 \
-        https://api.anthropic.com/v1/messages \
-        -H "x-api-key: $ANTHROPIC_API_KEY" \
+        "$EPISODIC_API_BASE_URL/v1/messages" \
+        -H "x-api-key: $EPISODIC_API_KEY" \
         -H "anthropic-version: 2023-06-01" \
         -H "content-type: application/json" \
         -d "$request_json" 2>/dev/null)
