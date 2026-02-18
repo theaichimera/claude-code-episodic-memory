@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# pi-patterns: User behavioral pattern management CLI
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$BIN_DIR/../lib/patterns.sh"
+
+usage() {
+    cat <<EOF
+Usage: pi-patterns <command> [OPTIONS]
+
+Manage user behavioral patterns learned from session transcripts.
+
+Commands:
+  extract             Run pattern extraction from recent sessions
+  list                List all patterns (default: active only)
+  show <id>           Show detailed info for a pattern
+  inject              Output context injection text (for testing)
+  retire <id>         Retire a pattern
+  backfill            Extract patterns from all existing sessions
+  stats               Show pattern statistics
+
+Options:
+  --dry-run           Preview without making changes (extract/backfill)
+  --status STATUS     Filter by status: active, dormant, retired, all (list)
+  --category CAT      Filter by category (list)
+  -h, --help          Show this help
+
+Examples:
+  pi-patterns extract                    # Extract from recent sessions
+  pi-patterns extract --dry-run          # Preview extraction
+  pi-patterns list                       # List active patterns
+  pi-patterns list --status all          # List all patterns
+  pi-patterns show trust-but-verify      # Show pattern details
+  pi-patterns inject                     # Preview context injection
+  pi-patterns retire old-pattern         # Retire a pattern
+  pi-patterns backfill                   # Process all sessions
+  pi-patterns stats                      # Show statistics
+EOF
+}
+
+# Ensure DB is initialized
+episodic_db_init "$EPISODIC_DB" >/dev/null 2>&1
+
+COMMAND="${1:-}"
+if [[ -z "$COMMAND" ]]; then
+    usage
+    exit 1
+fi
+shift
+
+case "$COMMAND" in
+    extract)
+        DRY_RUN=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --dry-run) DRY_RUN="--dry-run"; shift ;;
+                -h|--help) usage; exit 0 ;;
+                *) echo "Unknown option: $1" >&2; exit 1 ;;
+            esac
+        done
+        pi_patterns_extract $DRY_RUN
+        ;;
+
+    list)
+        STATUS_FILTER="active"
+        CATEGORY_FILTER=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --status)
+                    STATUS_FILTER="$2"
+                    if [[ "$STATUS_FILTER" == "all" ]]; then STATUS_FILTER=""; fi
+                    shift 2 ;;
+                --category) CATEGORY_FILTER="$2"; shift 2 ;;
+                -h|--help) usage; exit 0 ;;
+                *) echo "Unknown option: $1" >&2; exit 1 ;;
+            esac
+        done
+
+        ARGS=()
+        [[ -n "$STATUS_FILTER" ]] && ARGS+=(--status "$STATUS_FILTER")
+        [[ -n "$CATEGORY_FILTER" ]] && ARGS+=(--category "$CATEGORY_FILTER")
+
+        result=$(pi_patterns_list "${ARGS[@]}")
+        if [[ -z "$result" || "$result" == "[]" ]]; then
+            echo "No patterns found."
+            exit 0
+        fi
+
+        # Pretty-print as table
+        echo "ID                          Category        Confidence  Weight  Sessions  Projects  Status"
+        echo "─────────────────────────── ─────────────── ────────── ─────── ──────── ───────── ──────"
+        echo "$result" | jq -r '.[] | [.id, .category, .confidence, .weight, .session_count, .project_count, .status] | @tsv' | \
+            while IFS=$'\t' read -r id cat conf weight sess proj status; do
+                printf "%-27s %-15s %-10s %-7s %-8s %-9s %s\n" "$id" "$cat" "$conf" "$weight" "$sess" "$proj" "$status"
+            done
+        ;;
+
+    show)
+        PATTERN_ID="${1:-}"
+        if [[ -z "$PATTERN_ID" ]]; then
+            echo "Usage: pi-patterns show <pattern-id>" >&2
+            exit 1
+        fi
+
+        result=$(pi_patterns_read "$PATTERN_ID")
+        if [[ -z "$result" || "$result" == "[]" ]]; then
+            echo "Pattern not found: $PATTERN_ID" >&2
+            exit 1
+        fi
+
+        echo "$result" | jq -r '.[] |
+            "Pattern: \(.id)",
+            "Name: \(.name)",
+            "Category: \(.category)",
+            "Confidence: \(.confidence)",
+            "Weight: \(.weight)",
+            "Status: \(.status)",
+            "Sessions: \(.session_count)",
+            "Projects: \(.project_count)",
+            "",
+            "Description:",
+            "  \(.description)",
+            "",
+            "Behavioral Instruction:",
+            "  \(.behavioral_instruction // "(none)")",
+            "",
+            "First seen: \(.first_seen // "?")",
+            "Last seen: \(.last_seen // "?")",
+            "Last reinforced: \(.last_reinforced // "?")"
+        '
+
+        # Show evidence
+        safe_id=$(episodic_sql_escape "$(episodic_sanitize_name "$PATTERN_ID")")
+        evidence=$(episodic_db_query_json "SELECT session_id, project, evidence_text, extracted_at FROM pattern_evidence WHERE pattern_id='$safe_id' ORDER BY extracted_at DESC;" 2>/dev/null)
+        if [[ -n "$evidence" && "$evidence" != "[]" ]]; then
+            echo ""
+            echo "Evidence:"
+            echo "$evidence" | jq -r '.[] | "  [\(.extracted_at)] \(.project)/\(.session_id): \(.evidence_text)"'
+        fi
+        ;;
+
+    inject)
+        pi_patterns_generate_context
+        ;;
+
+    retire)
+        PATTERN_ID="${1:-}"
+        if [[ -z "$PATTERN_ID" ]]; then
+            echo "Usage: pi-patterns retire <pattern-id>" >&2
+            exit 1
+        fi
+        pi_patterns_retire "$PATTERN_ID"
+        echo "Pattern retired: $PATTERN_ID"
+        ;;
+
+    backfill)
+        DRY_RUN=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --dry-run) DRY_RUN="--dry-run"; shift ;;
+                -h|--help) usage; exit 0 ;;
+                *) echo "Unknown option: $1" >&2; exit 1 ;;
+            esac
+        done
+        pi_patterns_backfill $DRY_RUN
+        ;;
+
+    stats)
+        pi_patterns_stats
+        ;;
+
+    -h|--help)
+        usage
+        exit 0
+        ;;
+
+    *)
+        echo "Unknown command: $COMMAND" >&2
+        echo "Run 'pi-patterns --help' for usage." >&2
+        exit 1
+        ;;
+esac

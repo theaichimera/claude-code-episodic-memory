@@ -37,6 +37,7 @@ Project Intelligence: a learning system for Claude Code that gets smarter within
 ./tests/test-fts5-escape.sh        # FTS5 MATCH injection prevention
 ./tests/test-insert-session-escape.sh # SQL escaping in session inserts
 ./tests/test-git-conflict-safety.sh   # Git rebase conflict marker detection
+./tests/test-patterns.sh              # User behavioral pattern learning (storage, injection, security)
 
 # Install (sets up hooks, DB, skills)
 ./install.sh
@@ -61,9 +62,9 @@ Tests create temp databases in `/tmp` and clean up via `trap`. Most tests don't 
 
 ### Three Storage Layers
 
-- **SQLite FTS5** (`~/.claude/memory/episodic.db`): Local cache, fully regenerable. Tables: `sessions`, `summaries`, `sessions_fts`, `documents`, `documents_fts`, `synthesis_log`, `archive_log`
+- **SQLite FTS5** (`~/.claude/memory/episodic.db`): Local cache, fully regenerable. Tables: `sessions`, `summaries`, `sessions_fts`, `documents`, `documents_fts`, `synthesis_log`, `archive_log`, `user_patterns`, `pattern_evidence`, `pattern_extraction_log`
 - **JSONL archives** (configurable dir): Raw session transcripts, lossless copies
-- **Knowledge repo** (separate Git repo at `~/.claude/knowledge/`): Source of truth for skills. Per-project dirs with `skills/*.md` and `context.md`
+- **Knowledge repo** (separate Git repo at `~/.claude/knowledge/`): Source of truth for skills. Per-project dirs with `skills/*.md` and `context.md`. Global `_user/patterns/` for cross-project behavioral patterns.
 
 ### Library Modules (`lib/`)
 
@@ -75,6 +76,7 @@ Tests create temp databases in `/tmp` and clean up via `trap`. Most tests don't 
 - `synthesize.sh` — Opus-powered skill generation (v2). Reads raw session transcripts from JSONL archives (not just summaries) for deep, specific skills. Uses extended thinking. Supports create/update/delete actions. Auto-synthesis check (`EPISODIC_SYNTHESIZE_EVERY`), backfill suppression via `EPISODIC_BACKFILL_MODE`. Config: `EPISODIC_SYNTHESIZE_THINKING_BUDGET` (16K), `EPISODIC_SYNTHESIZE_TRANSCRIPT_COUNT` (5), `EPISODIC_SYNTHESIZE_TRANSCRIPT_CHARS` (30K).
 - `deep-dive.sh` — Codebase deep-dive generation. Context collection (tree, manifests, entry points, README, Docker), Opus API with extended thinking, YAML frontmatter write/read.
 - `index.sh` — Document text extraction (format-aware: direct read, pdftotext, html-strip, textutil/pandoc for docx) + FTS5 indexing with SHA-256 change detection. Schema is owned by `db.sh` — this module delegates `episodic_db_init`.
+- `patterns.sh` — User behavioral pattern learning (cross-project). Extracts patterns from ALL projects' transcripts via Opus, stores in `user_patterns`/`pattern_evidence` tables + knowledge repo `_user/patterns/`. Patterns have confidence escalation (sessions + projects), weight boosting (+0.25/project, cap 2.0), and dormancy (180 days). Context injection via `pi_patterns_generate_context` (max 8 patterns). Auto-extraction every `PI_PATTERNS_EXTRACT_EVERY` (5) sessions. Config: `PI_PATTERNS_MODEL`, `PI_PATTERNS_THINKING_BUDGET` (16K), `PI_PATTERNS_MAX_INJECT` (8), `PI_PATTERNS_DORMANCY_DAYS` (180).
 
 ### Deep Dive System
 

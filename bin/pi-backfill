@@ -18,6 +18,7 @@ Options:
   --retry-summaries   Retry failed summaries for already-archived sessions
   --project PATTERN   Only backfill projects matching pattern
   --synthesize        Run skill synthesis for all qualifying projects after backfill
+  --patterns          Run user behavioral pattern extraction after backfill
   --dry-run           Show what would be backfilled
   --limit N           Max sessions to process (default: unlimited)
   --delay SECONDS     Delay between API calls (default: 0.5)
@@ -28,6 +29,7 @@ Examples:
   episodic-backfill --no-summary            # Metadata only (fast, free)
   episodic-backfill --retry-summaries       # Retry failed summaries
   episodic-backfill --synthesize            # Backfill + generate skills
+  episodic-backfill --patterns              # Backfill + extract patterns
   episodic-backfill --project myapp         # Just one project
   episodic-backfill --dry-run               # Preview
 EOF
@@ -37,6 +39,7 @@ SKIP_SUMMARY=false
 DRY_RUN=false
 RETRY_SUMMARIES=false
 RUN_SYNTHESIS=false
+RUN_PATTERNS=false
 PROJECT_FILTER=""
 LIMIT=0
 DELAY=0.5
@@ -46,6 +49,7 @@ while [[ $# -gt 0 ]]; do
         --no-summary) SKIP_SUMMARY=true; shift ;;
         --retry-summaries) RETRY_SUMMARIES=true; shift ;;
         --synthesize) RUN_SYNTHESIS=true; shift ;;
+        --patterns) RUN_PATTERNS=true; shift ;;
         --project) PROJECT_FILTER="$2"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --limit) LIMIT="$2"; shift 2 ;;
@@ -277,4 +281,24 @@ if [[ "$RUN_SYNTHESIS" == "true" && "$DRY_RUN" != "true" ]]; then
     ")
 
     echo "Synthesis complete."
+fi
+
+# Run pattern extraction if requested
+if [[ "$RUN_PATTERNS" == "true" && "$DRY_RUN" != "true" ]]; then
+    echo ""
+    echo "Running user behavioral pattern extraction..."
+
+    # Source patterns.sh if not already loaded
+    if ! type pi_patterns_backfill &>/dev/null; then
+        source "$BIN_DIR/../lib/patterns.sh"
+    fi
+
+    if pi_patterns_backfill 2>/dev/null; then
+        echo "Pattern extraction complete."
+    else
+        echo "Pattern extraction failed (check log)."
+    fi
+elif [[ "$RUN_PATTERNS" == "true" && "$DRY_RUN" == "true" ]]; then
+    echo ""
+    echo "Would run user behavioral pattern extraction."
 fi

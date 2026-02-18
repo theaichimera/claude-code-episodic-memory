@@ -5,6 +5,21 @@ All notable changes to claude-episodic-memory are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **User Behavioral Patterns** — cross-project pattern learning from session transcripts
+  - `lib/patterns.sh`: extraction pipeline, storage, confidence escalation, context injection
+  - `bin/pi-patterns`: CLI with `extract`, `list`, `show`, `inject`, `retire`, `backfill`, `stats`
+  - `bin/episodic-patterns`: backward-compat symlink
+  - 3 new DB tables: `user_patterns`, `pattern_evidence`, `pattern_extraction_log`
+  - Knowledge repo: `_user/patterns/<category>/<id>.md` + `_user/patterns.yaml` index
+  - Auto-extraction every 5 sessions via `on-session-start.sh` (background)
+  - Context injection: top 8 weighted active patterns before project-specific context
+  - Confidence escalation: 1 session=low, 2-3=medium, 4+ or 2+ projects=high
+  - Weight boosting: +0.25 per additional project (capped at 2.0)
+  - Dormancy: patterns not reinforced in 180 days become dormant
+  - `--patterns` flag added to `pi-backfill` for pattern extraction after session import
+  - Config: `PI_PATTERNS_MODEL`, `PI_PATTERNS_THINKING_BUDGET`, `PI_PATTERNS_MAX_INJECT`, `PI_PATTERNS_EXTRACT_EVERY`, `PI_PATTERNS_DORMANCY_DAYS`, `PI_PATTERNS_WEIGHT_CAP`
+  - `tests/test-patterns.sh`: 22 tests (28 assertions) covering storage, injection, security
+  - Security: SQL injection prevention, path traversal prevention, symlink protection, category allowlist, weight cap enforcement
 - **Deep Dive system** — comprehensive codebase analysis documents
   - `lib/deep-dive.sh`: context collection, Opus API with extended thinking, read/write/exists
   - `bin/episodic-deep-dive`: CLI with `--project`, `--path`, `--refresh`, `--force`, `--dry-run`

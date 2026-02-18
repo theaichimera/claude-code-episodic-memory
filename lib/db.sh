@@ -169,6 +169,50 @@ CREATE INDEX IF NOT EXISTS idx_documents_project ON documents(project);
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(content_hash);
 SQL
 
+    # User behavioral patterns tables
+    episodic_db_exec_multi "$db" <<'SQL'
+CREATE TABLE IF NOT EXISTS user_patterns (
+    id TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    evidence TEXT NOT NULL DEFAULT '[]',
+    confidence TEXT DEFAULT 'low',
+    weight REAL DEFAULT 1.0,
+    session_count INTEGER DEFAULT 1,
+    project_count INTEGER DEFAULT 1,
+    first_seen TEXT,
+    last_seen TEXT,
+    last_reinforced TEXT,
+    behavioral_instruction TEXT,
+    status TEXT DEFAULT 'active',
+    created_at TEXT,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS pattern_evidence (
+    pattern_id TEXT NOT NULL REFERENCES user_patterns(id),
+    session_id TEXT NOT NULL,
+    project TEXT NOT NULL,
+    evidence_text TEXT NOT NULL,
+    extracted_at TEXT NOT NULL,
+    PRIMARY KEY(pattern_id, session_id)
+);
+
+CREATE TABLE IF NOT EXISTS pattern_extraction_log (
+    extracted_at TEXT PRIMARY KEY,
+    session_count INTEGER,
+    patterns_created INTEGER DEFAULT 0,
+    patterns_updated INTEGER DEFAULT 0,
+    patterns_retired INTEGER DEFAULT 0,
+    model TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_patterns_status ON user_patterns(status);
+CREATE INDEX IF NOT EXISTS idx_user_patterns_category ON user_patterns(category);
+CREATE INDEX IF NOT EXISTS idx_pattern_evidence_pattern ON pattern_evidence(pattern_id);
+SQL
+
     # Documents FTS5 table
     local docs_fts_exists
     docs_fts_exists=$(episodic_db_exec "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='documents_fts';" "$db")

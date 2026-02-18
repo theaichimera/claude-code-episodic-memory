@@ -6,6 +6,7 @@ BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$BIN_DIR/../lib/db.sh"
 [[ -f "$BIN_DIR/../lib/knowledge.sh" ]] && source "$BIN_DIR/../lib/knowledge.sh"
 [[ -f "$BIN_DIR/../lib/progression.sh" ]] && source "$BIN_DIR/../lib/progression.sh"
+[[ -f "$BIN_DIR/../lib/patterns.sh" ]] && source "$BIN_DIR/../lib/patterns.sh"
 
 usage() {
     cat <<EOF
@@ -112,6 +113,15 @@ if type pi_progression_generate_context &>/dev/null; then
     prog_context=$(pi_progression_generate_context "$PROJECT" 2>/dev/null)
     if [[ -n "$prog_context" ]]; then
         echo "$prog_context"
+        echo ""
+    fi
+fi
+
+# Output user behavioral patterns (cross-project, goes before project-specific context)
+if type pi_patterns_generate_context &>/dev/null; then
+    pattern_context=$(pi_patterns_generate_context 2>/dev/null)
+    if [[ -n "$pattern_context" ]]; then
+        echo "$pattern_context"
         echo ""
     fi
 fi

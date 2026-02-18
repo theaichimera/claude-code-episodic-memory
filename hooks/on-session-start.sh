@@ -44,6 +44,12 @@ if analyze_bin=$(_pi_bin analyze 2>/dev/null); then
     fi
 fi
 
+# Check if pattern extraction should run (background, non-blocking)
+if patterns_bin=$(_pi_bin patterns 2>/dev/null); then
+    source "$PI_ROOT/lib/patterns.sh" 2>/dev/null
+    pi_patterns_maybe_extract &>/dev/null &
+fi
+
 # Inject recent session context + skills + active progressions for this project
 if context_bin=$(_pi_bin context 2>/dev/null); then
     "$context_bin" 2>/dev/null || true

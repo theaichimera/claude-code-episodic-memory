@@ -66,6 +66,16 @@ EPISODIC_CONTEXT_COUNT="${EPISODIC_CONTEXT_COUNT:-3}"
 EPISODIC_MAX_EXTRACT_CHARS="${EPISODIC_MAX_EXTRACT_CHARS:-100000}"
 EPISODIC_LOG="${EPISODIC_LOG:-$HOME/.claude/memory/episodic.log}"
 
+# User behavioral patterns configuration
+PI_PATTERNS_MODEL="${PI_PATTERNS_MODEL:-$EPISODIC_OPUS_MODEL}"
+PI_PATTERNS_THINKING_BUDGET="${PI_PATTERNS_THINKING_BUDGET:-16000}"
+PI_PATTERNS_MAX_INJECT="${PI_PATTERNS_MAX_INJECT:-8}"
+PI_PATTERNS_EXTRACT_EVERY="${PI_PATTERNS_EXTRACT_EVERY:-5}"
+PI_PATTERNS_DORMANCY_DAYS="${PI_PATTERNS_DORMANCY_DAYS:-180}"
+PI_PATTERNS_TRANSCRIPT_COUNT="${PI_PATTERNS_TRANSCRIPT_COUNT:-10}"
+PI_PATTERNS_TRANSCRIPT_CHARS="${PI_PATTERNS_TRANSCRIPT_CHARS:-20000}"
+PI_PATTERNS_WEIGHT_CAP="${PI_PATTERNS_WEIGHT_CAP:-2.0}"
+
 # Ensure the API key is available
 episodic_require_api_key() {
     if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
@@ -181,8 +191,8 @@ if [[ -f "$EPISODIC_ROOT/.env" ]]; then
     while IFS='=' read -r key value; do
         # Skip comments and blank lines
         [[ -z "$key" || "$key" == \#* ]] && continue
-        # Only allow known EPISODIC_ config variable names
-        [[ "$key" =~ ^EPISODIC_[A-Z_]+$ ]] || continue
+        # Only allow known EPISODIC_ and PI_PATTERNS_ config variable names
+        [[ "$key" =~ ^(EPISODIC_|PI_PATTERNS_)[A-Z_]+$ ]] || continue
         # Strip surrounding quotes from value
         value="${value#\"}"
         value="${value%\"}"

@@ -8,13 +8,14 @@ Claude Code sessions are ephemeral. Every new conversation starts from zero. Cur
 
 ## What This Does
 
-Five interconnected systems:
+Six interconnected systems:
 
 1. **Episodic Memory** — Archive every session, generate structured summaries, enable full-text search across your entire conversation history
 2. **Document Indexing** — Index files in your knowledge repo (Markdown, code, PDFs, images) for full-text search alongside session history
 3. **Skill Synthesis** — Opus analyzes sessions and generates project-specific skills (structured prompts/playbooks) that capture recurring patterns, with auto-synthesis every N sessions
 4. **Progressions** — Track how your understanding of a topic evolves across a session or across sessions. A sequence of numbered documents that captures the full reasoning arc: initial assessment, deepenings, corrections, pivots, and synthesis. Corrections never decay — future sessions inherit what was wrong and why.
-5. **Knowledge Repo** — Git-backed per-project knowledge store that syncs across machines, versions skill evolution, stores progressions, and serves as the durable source of truth
+5. **User Patterns** — Learn cross-project behavioral patterns from how you work (verification habits, investigation methodology, common corrections) and inject them as behavioral instructions into every session. Patterns get stronger with evidence from multiple sessions and projects.
+6. **Knowledge Repo** — Git-backed per-project knowledge store that syncs across machines, versions skill evolution, stores progressions, and serves as the durable source of truth
 
 ## Why Open Source
 
@@ -41,8 +42,9 @@ The value each team brings is their own accumulated intelligence — the reasoni
 │                      ├── archive previous session (background)      │
 │                      ├── index knowledge documents (background)     │
 │                      ├── auto-create Project Understanding (bg)     │
-│                      └── inject context (progressions + sessions    │
-│                          + skills + docs)                           │
+│                      ├── extract user patterns (bg, every 5 sess)   │
+│                      └── inject context (patterns + progressions    │
+│                          + sessions + skills + docs)                │
 │                                                                     │
 │  Stop hook ──────────┬── checkpoint session metadata                │
 │                      └── git commit+push knowledge (if changed)     │
@@ -93,6 +95,7 @@ The value each team brings is their own accumulated intelligence — the reasoni
 │   ├── pi-synthesize                   # Generate skills from sessions (Opus)
 │   ├── pi-index                        # Index knowledge repo docs for search
 │   ├── pi-deep-dive                    # Generate codebase analysis
+│   ├── pi-patterns                     # User behavioral pattern management
 │   ├── pi-progression-init             # Create a new progression
 │   ├── pi-progression-add              # Add a document to a progression
 │   ├── pi-progression-status           # Show progression state
@@ -115,9 +118,11 @@ The value each team brings is their own accumulated intelligence — the reasoni
 │   ├── synthesize.sh                   # Opus skill generation + auto-synthesis
 │   ├── index.sh                        # Document text extraction + FTS5 indexing
 │   ├── deep-dive.sh                    # Codebase deep-dive generation
-│   └── progression.sh                  # Progression tracking (create, add, correct, context)
+│   ├── progression.sh                  # Progression tracking (create, add, correct, context)
+│   └── patterns.sh                     # User behavioral pattern learning (cross-project)
 └── tests/
-    ├── run-all.sh                      # Test runner (22 existing tests)
+    ├── run-all.sh                      # Test runner (23 suites)
+    ├── test-patterns.sh                # Pattern learning tests (22 tests)
     ├── test-progressions.sh            # Progression tests (18 tests)
     └── ...                             # Other test suites
 ```
@@ -159,9 +164,10 @@ The context block injected at session start includes (in order):
 
 1. **Progression behavioral instructions** — when and how to create progressions
 2. **Active progressions** — current position, corrections, open questions
-3. **Recent sessions** — last 3 session summaries for context continuity
-4. **Project skills** — pinned (manual), fresh (full content), aging (one-line)
-5. **Indexed documents** — listing of files in the knowledge repo
+3. **User behavioral patterns** — cross-project instructions (verification habits, investigation methodology, etc.)
+4. **Recent sessions** — last 3 session summaries for context continuity
+5. **Project skills** — pinned (manual), fresh (full content), aging (one-line)
+6. **Indexed documents** — listing of files in the knowledge repo
 
 ```markdown
 # Project Intelligence
@@ -177,6 +183,16 @@ The context block injected at session start includes (in order):
 - doc_02 corrects doc_01 (2026-02-13)
 **Open questions:**
 - Reserved capacity pricing for sustained usage
+
+## User Behavioral Patterns
+
+### Trust-but-Verify [verification, high]
+When presenting facts or API outputs, proactively include verification commands
+(CLI, console URL). Do not wait to be asked.
+
+### Date Sensitivity [correction, high]
+CRITICAL: Always use current year (2026) in queries. Never default to 2025.
+Double-check all date literals before presenting.
 
 # Recent Sessions (acme-app)
 
@@ -239,6 +255,15 @@ The knowledge repo is a **separate Git repository** that you create and own. It 
 ```
 <your-knowledge-repo>/
 ├── .episodic-config.json               # Repo metadata + project registry
+├── _user/                              # Global (cross-project) data
+│   ├── patterns/                       # User behavioral patterns
+│   │   ├── verification/
+│   │   │   └── trust-but-verify.md
+│   │   ├── correction/
+│   │   │   └── date-sensitivity.md
+│   │   └── investigation/
+│   │       └── drill-down-pattern.md
+│   └── patterns.yaml                   # Index with weights
 ├── myproject/
 │   ├── skills/
 │   │   ├── validate-cost.md            # "Always validate estimates against billing data"
@@ -469,6 +494,41 @@ CREATE TABLE synthesis_log (
     model TEXT,
     PRIMARY KEY(project, synthesized_at)
 );
+
+-- User behavioral patterns (cross-project)
+CREATE TABLE user_patterns (
+    id TEXT PRIMARY KEY,                -- "trust-but-verify"
+    category TEXT NOT NULL,             -- verification|investigation|methodology|communication|correction
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    evidence TEXT NOT NULL DEFAULT '[]', -- JSON array of session IDs
+    confidence TEXT DEFAULT 'low',      -- low|medium|high
+    weight REAL DEFAULT 1.0,            -- injection priority (boosted by cross-project evidence)
+    session_count INTEGER DEFAULT 1,
+    project_count INTEGER DEFAULT 1,
+    first_seen TEXT, last_seen TEXT, last_reinforced TEXT,
+    behavioral_instruction TEXT,        -- THE key field: injected into sessions
+    status TEXT DEFAULT 'active',       -- active|dormant|retired
+    created_at TEXT, updated_at TEXT
+);
+
+CREATE TABLE pattern_evidence (
+    pattern_id TEXT NOT NULL REFERENCES user_patterns(id),
+    session_id TEXT NOT NULL,
+    project TEXT NOT NULL,
+    evidence_text TEXT NOT NULL,
+    extracted_at TEXT NOT NULL,
+    PRIMARY KEY(pattern_id, session_id)
+);
+
+CREATE TABLE pattern_extraction_log (
+    extracted_at TEXT PRIMARY KEY,
+    session_count INTEGER,
+    patterns_created INTEGER DEFAULT 0,
+    patterns_updated INTEGER DEFAULT 0,
+    patterns_retired INTEGER DEFAULT 0,
+    model TEXT
+);
 ```
 
 The SQLite database is a **local cache**. It can be fully regenerated from:
@@ -519,6 +579,9 @@ cd ~/.claude/project-intelligence
 
 # Full backfill with Haiku summaries (~$0.008/session)
 ~/.claude/project-intelligence/bin/pi-backfill
+
+# Backfill + extract user behavioral patterns
+~/.claude/project-intelligence/bin/pi-backfill --patterns
 ```
 
 ### Uninstall
@@ -564,6 +627,16 @@ EPISODIC_SYNTHESIZE_EVERY="${EPISODIC_SYNTHESIZE_EVERY:-2}"  # sessions between 
 # Skill decay thresholds (days) for context injection
 EPISODIC_SKILL_FRESH_DAYS="${EPISODIC_SKILL_FRESH_DAYS:-30}"   # full content injection
 EPISODIC_SKILL_AGING_DAYS="${EPISODIC_SKILL_AGING_DAYS:-90}"   # one-line summary only
+
+# User behavioral patterns
+PI_PATTERNS_MODEL="${PI_PATTERNS_MODEL:-$EPISODIC_OPUS_MODEL}"        # extraction model
+PI_PATTERNS_THINKING_BUDGET="${PI_PATTERNS_THINKING_BUDGET:-16000}"    # thinking tokens
+PI_PATTERNS_MAX_INJECT="${PI_PATTERNS_MAX_INJECT:-8}"                  # max patterns in context
+PI_PATTERNS_EXTRACT_EVERY="${PI_PATTERNS_EXTRACT_EVERY:-5}"            # sessions between extractions
+PI_PATTERNS_DORMANCY_DAYS="${PI_PATTERNS_DORMANCY_DAYS:-180}"          # days before dormancy
+PI_PATTERNS_TRANSCRIPT_COUNT="${PI_PATTERNS_TRANSCRIPT_COUNT:-10}"     # transcripts per extraction
+PI_PATTERNS_TRANSCRIPT_CHARS="${PI_PATTERNS_TRANSCRIPT_CHARS:-20000}"  # chars per transcript
+PI_PATTERNS_WEIGHT_CAP="${PI_PATTERNS_WEIGHT_CAP:-2.0}"               # max pattern weight
 ```
 
 ## Progressions
@@ -656,6 +729,69 @@ documents:
     superseded_by: null
 ```
 
+## User Patterns
+
+User patterns capture *how you work* across all projects — not project-specific knowledge (that's skills), but behavioral patterns like verification habits, investigation methodology, and common corrections you make.
+
+### How It Works
+
+1. **Every 5 sessions**, PI loads the last 10 transcripts from ALL projects and sends them to Opus
+2. Opus identifies cross-project behavioral patterns (how you verify, investigate, communicate, correct)
+3. Each pattern gets a **behavioral instruction** — a 1-2 sentence directive that tells Claude what to do differently
+4. Active patterns are injected at the top of every session (~1K tokens for up to 8 patterns)
+5. Patterns strengthen with evidence: more sessions and more projects = higher confidence and weight
+
+### Confidence & Weight
+
+| Evidence | Confidence | Weight |
+|----------|-----------|--------|
+| 1 session, 1 project | low | 1.0 |
+| 2-3 sessions, 1 project | medium | 1.0 |
+| 4+ sessions, 1 project | high | 1.0 |
+| Any sessions, 2+ projects | high | +0.25/project (cap: 2.0) |
+
+Patterns not reinforced for 180 days become **dormant** (not injected, but still searchable). You can manually **retire** patterns that are no longer relevant.
+
+### Commands
+
+```bash
+pi-patterns extract                    # Extract from recent sessions
+pi-patterns extract --dry-run          # Preview extraction
+pi-patterns list                       # List active patterns
+pi-patterns list --status all          # List all (active + dormant + retired)
+pi-patterns list --category verification  # Filter by category
+pi-patterns show trust-but-verify      # Show full details + evidence
+pi-patterns inject                     # Preview context injection output
+pi-patterns retire old-pattern         # Manually retire a pattern
+pi-patterns backfill                   # Process all existing sessions
+pi-patterns stats                      # Show statistics
+```
+
+### Pattern Categories
+
+| Category | What It Captures |
+|----------|-----------------|
+| `verification` | How the user validates claims, checks facts |
+| `investigation` | Drill-down methodology, analysis approach |
+| `methodology` | Procedures, codification habits, workflow preferences |
+| `communication` | Reporting preferences, output format expectations |
+| `correction` | Common mistakes caught, error patterns flagged |
+
+### Storage
+
+- **SQLite** (`user_patterns`, `pattern_evidence`, `pattern_extraction_log` tables) — source of truth for active state
+- **Knowledge repo** (`_user/patterns/<category>/<id>.md` + `_user/patterns.yaml` index) — syncs across machines
+- Config: `PI_PATTERNS_*` variables in `lib/config.sh`
+
+### Backfill
+
+After first install, run pattern extraction across all existing sessions:
+
+```bash
+pi-backfill --patterns           # Full backfill + pattern extraction
+pi-patterns backfill             # Pattern extraction only
+```
+
 ## CLI Reference
 
 | Command | Description |
@@ -675,6 +811,14 @@ documents:
 | `pi-synthesize` | Generate/update skills for current project |
 | `pi-index --all` | Index all knowledge repo documents |
 | `pi-deep-dive` | Generate codebase analysis |
+| **Patterns** | |
+| `pi-patterns extract` | Extract user behavioral patterns from recent sessions |
+| `pi-patterns list [--status S] [--category C]` | List patterns (default: active) |
+| `pi-patterns show <id>` | Show pattern details + evidence |
+| `pi-patterns inject` | Preview context injection output |
+| `pi-patterns retire <id>` | Retire a pattern |
+| `pi-patterns backfill` | Extract patterns from all existing sessions |
+| `pi-patterns stats` | Show pattern statistics |
 | **Progressions** | |
 | `pi-progression-init --project P --topic T` | Create a new progression |
 | `pi-progression-add --project P --topic T --number NN --title T --type TYPE` | Add a document |
@@ -716,6 +860,7 @@ documents:
 ./tests/test-knowledge.sh   # Knowledge repo clone, sync, conflict handling
 ./tests/test-synthesize.sh  # Skill generation, auto-synthesis, backfill suppression
 ./tests/test-index.sh       # Document indexing, search, change detection, cleanup
+./tests/test-patterns.sh    # User pattern storage, injection, security (22 tests)
 ```
 
 Tests use temporary databases in `/tmp` and clean up after themselves. No API keys needed for most tests (summary/synthesis tests mock the API or use `--no-summary`).
