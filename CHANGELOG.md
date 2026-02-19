@@ -5,6 +5,19 @@ All notable changes to claude-episodic-memory are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Activity Intelligence** — System 7: tracks what users *did* (GitHub activity, issues, PRs, commits) as opposed to what they discussed (episodic) or learned (skills/progressions)
+  - `lib/activity.sh`: GitHub adapter, FTS5 search, context injection, report generation
+  - `bin/pi-activity`: CLI with `gather`, `search`, `report`, `recent`, `sources` subcommands
+  - `skills/activity/SKILL.md`: `/activity` slash command for Claude Code
+  - 3 new DB tables: `activity_sources`, `activities`, `activities_fts` (FTS5)
+  - Context injection: recent activity summary injected at session start (after patterns, before sessions)
+  - GitHub adapter: gathers issues created, PRs created, and commits via `gh` CLI
+  - Multi-user support: track your own activity (rich) or others' (GitHub-only)
+  - Report generation: summary and JSON formats, filterable by user and month
+  - Source management: `pi-activity sources add/list/remove` for configuring GitHub users
+  - Config: `PI_ACTIVITY_GATHER_DAYS`, `PI_ACTIVITY_MAX_INJECT`, `PI_ACTIVITY_GITHUB_ORG`
+  - `tests/test-activity.sh`: 30 tests covering schema, sources, insert, search, recent, report, context injection, and SQL/FTS5 injection security
+  - Designed for extension: MCP adapter and product-specific plugin adapters can be added as new gather functions in `lib/activity.sh`
 - **User Behavioral Patterns** — cross-project pattern learning from session transcripts
   - `lib/patterns.sh`: extraction pipeline, storage, confidence escalation, context injection
   - `bin/pi-patterns`: CLI with `extract`, `list`, `show`, `inject`, `retire`, `backfill`, `stats`

@@ -213,6 +213,54 @@ CREATE INDEX IF NOT EXISTS idx_user_patterns_category ON user_patterns(category)
 CREATE INDEX IF NOT EXISTS idx_pattern_evidence_pattern ON pattern_evidence(pattern_id);
 SQL
 
+    # Activity intelligence tables
+    episodic_db_exec_multi "$db" <<'SQL'
+CREATE TABLE IF NOT EXISTS activity_sources (
+    id TEXT PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    user_slug TEXT NOT NULL,
+    username TEXT NOT NULL,
+    config TEXT DEFAULT '{}',
+    last_gathered TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS activities (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES activity_sources(id),
+    activity_type TEXT NOT NULL,
+    project TEXT,
+    title TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    url TEXT DEFAULT '',
+    repo TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    metadata TEXT DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_activities_source ON activities(source_id);
+CREATE INDEX IF NOT EXISTS idx_activities_project ON activities(project);
+CREATE INDEX IF NOT EXISTS idx_activities_created ON activities(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activities_type ON activities(activity_type);
+CREATE INDEX IF NOT EXISTS idx_activity_sources_user ON activity_sources(user_slug);
+SQL
+
+    # Activities FTS5 table
+    local activities_fts_exists
+    activities_fts_exists=$(episodic_db_exec "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='activities_fts';" "$db")
+    if [[ "$activities_fts_exists" == "0" ]]; then
+        episodic_db_exec_multi "$db" <<'SQL'
+CREATE VIRTUAL TABLE activities_fts USING fts5(
+    activity_id UNINDEXED,
+    project,
+    title,
+    description,
+    repo,
+    tokenize='porter unicode61'
+);
+SQL
+    fi
+
     # Documents FTS5 table
     local docs_fts_exists
     docs_fts_exists=$(episodic_db_exec "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='documents_fts';" "$db")

@@ -76,6 +76,11 @@ PI_PATTERNS_TRANSCRIPT_COUNT="${PI_PATTERNS_TRANSCRIPT_COUNT:-10}"
 PI_PATTERNS_TRANSCRIPT_CHARS="${PI_PATTERNS_TRANSCRIPT_CHARS:-20000}"
 PI_PATTERNS_WEIGHT_CAP="${PI_PATTERNS_WEIGHT_CAP:-2.0}"
 
+# Activity intelligence configuration
+PI_ACTIVITY_GATHER_DAYS="${PI_ACTIVITY_GATHER_DAYS:-30}"
+PI_ACTIVITY_MAX_INJECT="${PI_ACTIVITY_MAX_INJECT:-10}"
+PI_ACTIVITY_GITHUB_ORG="${PI_ACTIVITY_GITHUB_ORG:-}"
+
 # Ensure the API key is available
 episodic_require_api_key() {
     if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
@@ -192,7 +197,7 @@ if [[ -f "$EPISODIC_ROOT/.env" ]]; then
         # Skip comments and blank lines
         [[ -z "$key" || "$key" == \#* ]] && continue
         # Only allow known EPISODIC_ and PI_PATTERNS_ config variable names
-        [[ "$key" =~ ^(EPISODIC_|PI_PATTERNS_)[A-Z_]+$ ]] || continue
+        [[ "$key" =~ ^(EPISODIC_|PI_PATTERNS_|PI_ACTIVITY_)[A-Z_]+$ ]] || continue
         # Strip surrounding quotes from value
         value="${value#\"}"
         value="${value%\"}"

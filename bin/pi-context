@@ -7,6 +7,7 @@ source "$BIN_DIR/../lib/db.sh"
 [[ -f "$BIN_DIR/../lib/knowledge.sh" ]] && source "$BIN_DIR/../lib/knowledge.sh"
 [[ -f "$BIN_DIR/../lib/progression.sh" ]] && source "$BIN_DIR/../lib/progression.sh"
 [[ -f "$BIN_DIR/../lib/patterns.sh" ]] && source "$BIN_DIR/../lib/patterns.sh"
+[[ -f "$BIN_DIR/../lib/activity.sh" ]] && source "$BIN_DIR/../lib/activity.sh"
 
 usage() {
     cat <<EOF
@@ -158,6 +159,15 @@ if type pi_patterns_generate_context &>/dev/null; then
     pattern_context=$(pi_patterns_generate_context 2>/dev/null)
     if [[ -n "$pattern_context" ]]; then
         echo "$pattern_context"
+        echo ""
+    fi
+fi
+
+# Output recent activity intelligence (what the user did, from GitHub etc.)
+if type pi_activity_generate_context &>/dev/null; then
+    activity_context=$(pi_activity_generate_context "" "7" 2>/dev/null)
+    if [[ -n "$activity_context" ]]; then
+        echo "$activity_context"
         echo ""
     fi
 fi

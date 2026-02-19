@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+# pi-activity: Activity intelligence for Project Intelligence
+# Tracks what users did (GitHub activity, etc.) for context injection and reporting.
+set -euo pipefail
+
+_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_LIB_DIR="$_BIN_DIR/../lib"
+source "$_LIB_DIR/activity.sh"
+
+# Initialize database (idempotent)
+episodic_db_init
+
+usage() {
+    cat <<'USAGE'
+Usage: pi-activity <command> [options]
+
+Commands:
+  gather [--user USER] [--since DATE] [--org ORG]
+      Gather activity from configured sources (or specify user).
+      Default: all configured sources, last PI_ACTIVITY_GATHER_DAYS days.
+
+  search <query> [--user USER] [--limit N]
+      Search activities using full-text search.
+
+  report [--user USER] [--month YYYY-MM] [--format FORMAT]
+      Generate an activity report.
+      Format: summary (default), json
+
+  recent [--user USER] [--days N] [--limit N]
+      Show recent activities (for context injection preview).
+
+  sources add <github_username> [--slug USER_SLUG] [--org ORG]
+      Add a GitHub user as an activity source.
+
+  sources list [--user USER_SLUG]
+      List configured activity sources.
+
+  sources remove <source_id>
+      Remove an activity source.
+
+Examples:
+  pi-activity sources add dschwartzi --org trilogy-group
+  pi-activity gather
+  pi-activity gather --user dschwartzi --since 2026-02-01
+  pi-activity search "cost optimization"
+  pi-activity report --month 2026-02
+  pi-activity recent --days 7
+USAGE
+}
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+    gather)
+        user="" since="" org="$PI_ACTIVITY_GITHUB_ORG"
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --user) user="$2"; shift 2 ;;
+                --since) since="$2"; shift 2 ;;
+                --org) org="$2"; shift 2 ;;
+                *) echo "Unknown option: $1" >&2; exit 1 ;;
+            esac
+        done
+        if [[ -n "$user" ]]; then
+            pi_activity_gather_github "$user" "$since" "$org"
+        else
+            pi_activity_gather_all "$since"
+        fi
+        ;;
+
+    search)
+        query="${1:-}"
+        shift || true
+        if [[ -z "$query" ]]; then
+            echo "Usage: pi-activity search <query> [--user USER] [--limit N]" >&2
+            exit 1
+        fi
+        user="" limit="20"
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --user) user="$2"; shift 2 ;;
+                --limit) limit="$2"; shift 2 ;;
+                *) echo "Unknown option: $1" >&2; exit 1 ;;
+            esac
+        done
+        result=$(pi_activity_search "$query" "$limit" "$user")
+        if [[ -z "$result" || "$result" == "[]" ]]; then
+            echo "No activities found for: $query"
+        else
+            echo "$result" | jq -r '.[] | "[\(.activity_type)] \(.created_at | split("T")[0]) \(.repo): \(.title)"'
+        fi
+        ;;
+
+    report)
+        user="" month="" format="summary"
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --user) user="$2"; shift 2 ;;
+                --month) month="$2"; shift 2 ;;
+                --format) format="$2"; shift 2 ;;
+                *) echo "Unknown option: $1" >&2; exit 1 ;;
+            esac
+        done
+        if [[ -z "$user" ]]; then
+            # Try to detect from git config
+            user=$(git config user.name 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr ' ' '-' || echo "")
+            if [[ -z "$user" ]]; then
+                echo "Usage: pi-activity report --user USER_SLUG [--month YYYY-MM]" >&2
+                exit 1
+            fi
+        fi
+        pi_activity_report "$user" "${month:-$(date +%Y-%m)}" "$format"
+        ;;
+
+    recent)
+        user="" days="7" limit="$PI_ACTIVITY_MAX_INJECT"
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --user) user="$2"; shift 2 ;;
+                --days) days="$2"; shift 2 ;;
+                --limit) limit="$2"; shift 2 ;;
+                *) echo "Unknown option: $1" >&2; exit 1 ;;
+            esac
+        done
+        result=$(pi_activity_recent "$user" "$days" "$limit")
+        if [[ -z "$result" || "$result" == "[]" ]]; then
+            echo "No recent activities found."
+        else
+            echo "$result" | jq -r '.[] | "[\(.activity_type)] \(.created_at | split("T")[0]) \(.repo): \(.title)"'
+        fi
+        ;;
+
+    sources)
+        subcmd="${1:-}"
+        shift || true
+        case "$subcmd" in
+            add)
+                username="${1:-}"
+                shift || true
+                if [[ -z "$username" ]]; then
+                    echo "Usage: pi-activity sources add <github_username> [--slug SLUG] [--org ORG]" >&2
+                    exit 1
+                fi
+                slug="" org="$PI_ACTIVITY_GITHUB_ORG"
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        --slug) slug="$2"; shift 2 ;;
+                        --org) org="$2"; shift 2 ;;
+                        *) echo "Unknown option: $1" >&2; exit 1 ;;
+                    esac
+                done
+                pi_activity_add_source "$username" "$slug" "$org"
+                ;;
+            list)
+                user=""
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        --user) user="$2"; shift 2 ;;
+                        *) echo "Unknown option: $1" >&2; exit 1 ;;
+                    esac
+                done
+                result=$(pi_activity_list_sources "$user")
+                if [[ -z "$result" || "$result" == "[]" ]]; then
+                    echo "No activity sources configured."
+                    echo "Add one: pi-activity sources add <github_username> --org <org>"
+                else
+                    echo "$result" | jq -r '.[] | "\(.id) (\(.user_slug)) last gathered: \(.last_gathered // "never")"'
+                fi
+                ;;
+            remove)
+                source_id="${1:-}"
+                if [[ -z "$source_id" ]]; then
+                    echo "Usage: pi-activity sources remove <source_id>" >&2
+                    exit 1
+                fi
+                safe_id=$(episodic_sql_escape "$source_id")
+                episodic_db_exec "DELETE FROM activities WHERE source_id='$safe_id';"
+                episodic_db_exec "DELETE FROM activity_sources WHERE id='$safe_id';"
+                echo "Removed source: $source_id"
+                ;;
+            *)
+                echo "Usage: pi-activity sources [add|list|remove]" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+
+    help|--help|-h|"")
+        usage
+        ;;
+
+    *)
+        echo "Unknown command: $cmd" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
