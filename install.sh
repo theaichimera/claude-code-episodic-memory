@@ -237,7 +237,7 @@ import json
 with open('$KNOWN_MKT') as f:
     data = json.load(f)
 data['$MARKETPLACE_NAME'] = {
-    'source': {'source': 'local', 'path': '$EPISODIC_ROOT'},
+    'source': {'source': 'git', 'url': 'file://$EPISODIC_ROOT'},
     'installLocation': '$PLUGINS_DIR_CC/marketplaces/$MARKETPLACE_NAME',
     'lastUpdated': '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'
 }
