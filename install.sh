@@ -159,7 +159,132 @@ fi
 ln -s "$EPISODIC_ROOT/skills/reflect" "$REFLECT_LINK"
 echo "  ✓ /reflect skill installed"
 
-# 6. Knowledge repo setup (optional)
+# Install /activity
+ACTIVITY_LINK="$SKILLS_DIR/activity"
+if [[ -L "$ACTIVITY_LINK" || -d "$ACTIVITY_LINK" ]]; then
+    rm -rf "$ACTIVITY_LINK"
+fi
+ln -s "$EPISODIC_ROOT/skills/activity" "$ACTIVITY_LINK"
+echo "  ✓ /activity skill installed"
+
+# Install /help
+HELP_LINK="$SKILLS_DIR/help"
+if [[ -L "$HELP_LINK" || -d "$HELP_LINK" ]]; then
+    rm -rf "$HELP_LINK"
+fi
+ln -s "$EPISODIC_ROOT/skills/help" "$HELP_LINK"
+echo "  ✓ /help skill installed"
+
+# Install /plugins
+PLUGINS_LINK="$SKILLS_DIR/plugins"
+if [[ -L "$PLUGINS_LINK" || -d "$PLUGINS_LINK" ]]; then
+    rm -rf "$PLUGINS_LINK"
+fi
+ln -s "$EPISODIC_ROOT/skills/plugins" "$PLUGINS_LINK"
+echo "  ✓ /plugins skill installed"
+
+# 6. Register as Claude Code plugin marketplace
+echo ""
+echo "Registering as Claude Code plugin..."
+
+PLUGINS_DIR_CC="$HOME/.claude/plugins"
+MARKETPLACE_NAME="pi-marketplace"
+PLUGIN_NAME="pi"
+PLUGIN_VERSION=$(python3 -c "import json; print(json.load(open('$EPISODIC_ROOT/.claude-plugin/plugin.json'))['version'])" 2>/dev/null || echo "1.0.0")
+
+# Ensure marketplace.json exists
+if [[ ! -f "$EPISODIC_ROOT/.claude-plugin/marketplace.json" ]]; then
+    cat > "$EPISODIC_ROOT/.claude-plugin/marketplace.json" <<MKJSON
+{
+  "name": "$MARKETPLACE_NAME",
+  "owner": {"name": "theaichimera", "url": "https://github.com/theaichimera"},
+  "metadata": {"description": "Project Intelligence: Persistent learning system for Claude Code", "version": "$PLUGIN_VERSION"},
+  "plugins": [{"name": "$PLUGIN_NAME", "description": "Episodic memory, skill synthesis, reasoning progressions, behavioral patterns, activity intelligence.", "source": "./"}]
+}
+MKJSON
+    echo "  ✓ marketplace.json created"
+fi
+
+# Ensure hooks.json is valid (not a copy of plugin.json)
+if [[ -f "$EPISODIC_ROOT/.claude-plugin/hooks.json" ]]; then
+    if python3 -c "import json; d=json.load(open('$EPISODIC_ROOT/.claude-plugin/hooks.json')); assert 'name' in d and 'hooks' not in d" 2>/dev/null; then
+        # hooks.json looks like plugin.json — fix it
+        if [[ -f "$EPISODIC_ROOT/hooks/hooks.json" ]]; then
+            cp "$EPISODIC_ROOT/hooks/hooks.json" "$EPISODIC_ROOT/.claude-plugin/hooks.json"
+            echo "  ✓ hooks.json fixed (was copy of plugin.json)"
+        fi
+    fi
+fi
+
+# Symlink into marketplaces directory
+mkdir -p "$PLUGINS_DIR_CC/marketplaces"
+ln -sf "$EPISODIC_ROOT" "$PLUGINS_DIR_CC/marketplaces/$MARKETPLACE_NAME"
+
+# Create cache with symlinks
+CACHE_PATH="$PLUGINS_DIR_CC/cache/$MARKETPLACE_NAME/$PLUGIN_NAME/$PLUGIN_VERSION"
+rm -rf "$CACHE_PATH"
+mkdir -p "$CACHE_PATH"
+for item in "$EPISODIC_ROOT"/*; do
+    ln -sf "$item" "$CACHE_PATH/$(basename "$item")" 2>/dev/null || true
+done
+ln -sf "$EPISODIC_ROOT/.claude-plugin" "$CACHE_PATH/.claude-plugin"
+
+# Register in known_marketplaces.json
+KNOWN_MKT="$PLUGINS_DIR_CC/known_marketplaces.json"
+if [[ -f "$KNOWN_MKT" ]]; then
+    python3 -c "
+import json
+with open('$KNOWN_MKT') as f:
+    data = json.load(f)
+data['$MARKETPLACE_NAME'] = {
+    'source': {'source': 'local', 'path': '$EPISODIC_ROOT'},
+    'installLocation': '$PLUGINS_DIR_CC/marketplaces/$MARKETPLACE_NAME',
+    'lastUpdated': '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'
+}
+with open('$KNOWN_MKT', 'w') as f:
+    json.dump(data, f, indent=4)
+    f.write('\n')
+" 2>/dev/null
+fi
+
+# Register in installed_plugins.json
+INSTALLED_PLG="$PLUGINS_DIR_CC/installed_plugins.json"
+if [[ -f "$INSTALLED_PLG" ]]; then
+    python3 -c "
+import json
+with open('$INSTALLED_PLG') as f:
+    data = json.load(f)
+# Remove old @local entry if present
+data['plugins'].pop('$PLUGIN_NAME@local', None)
+data['plugins']['$PLUGIN_NAME@$MARKETPLACE_NAME'] = [{
+    'scope': 'user',
+    'installPath': '$CACHE_PATH',
+    'version': '$PLUGIN_VERSION',
+    'installedAt': '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)',
+    'lastUpdated': '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'
+}]
+with open('$INSTALLED_PLG', 'w') as f:
+    json.dump(data, f, indent=4)
+    f.write('\n')
+" 2>/dev/null
+fi
+
+# Enable in settings.json
+python3 -c "
+import json
+with open('$SETTINGS_FILE') as f:
+    data = json.load(f)
+ep = data.setdefault('enabledPlugins', {})
+ep.pop('$PLUGIN_NAME@local', None)
+ep['$PLUGIN_NAME@$MARKETPLACE_NAME'] = True
+with open('$SETTINGS_FILE', 'w') as f:
+    json.dump(data, f, indent=4)
+    f.write('\n')
+" 2>/dev/null
+
+echo "  ✓ Registered as $PLUGIN_NAME@$MARKETPLACE_NAME"
+
+# 7. Knowledge repo setup (optional)
 echo ""
 echo "Knowledge Repo Setup"
 echo "  A Git repo stores per-project skills and context across machines."
