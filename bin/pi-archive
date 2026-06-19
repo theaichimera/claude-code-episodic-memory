@@ -223,6 +223,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_SUMMARY=true
             shift
             ;;
+        --deep)
+            export EPISODIC_DEEP=1
+            shift
+            ;;
         --dry-run)
             DRY_RUN=true
             shift

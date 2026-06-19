@@ -79,6 +79,11 @@ episodic_db_init() {
     local db="${1:-$EPISODIC_DB}"
     mkdir -p "$(dirname "$db")"
 
+    # Enable WAL mode for concurrent reader/writer access. Without WAL, parallel
+    # backfills + session hooks reading the DB hit SQLITE_BUSY immediately because
+    # busy_timeout=0 default. WAL setting persists in the DB file itself.
+    sqlite3 "$db" "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=1000;" >/dev/null 2>&1 || true
+
     episodic_db_exec_multi "$db" <<'SQL'
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,

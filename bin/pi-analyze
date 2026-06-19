@@ -5,7 +5,16 @@
 set -euo pipefail
 
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$BIN_DIR/../lib/deep-dive.sh"
+# deep-dive.sh was archived in commit f3a222e but pi-analyze still needs it.
+# Fall back to archive copy if the canonical path is missing.
+if [[ -f "$BIN_DIR/../lib/deep-dive.sh" ]]; then
+    source "$BIN_DIR/../lib/deep-dive.sh"
+elif [[ -f "$BIN_DIR/../archive/lib/deep-dive.sh" ]]; then
+    source "$BIN_DIR/../archive/lib/deep-dive.sh"
+else
+    echo "ERROR: pi-analyze requires lib/deep-dive.sh (canonical or archive copy)." >&2
+    exit 1
+fi
 source "$BIN_DIR/../lib/progression.sh"
 [[ -f "$BIN_DIR/../lib/knowledge.sh" ]] && source "$BIN_DIR/../lib/knowledge.sh"
 

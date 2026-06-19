@@ -4,6 +4,9 @@
 #
 # Supports both plugin mode (CLAUDE_PLUGIN_ROOT) and standalone install.
 
+# Recursion guard: skip when invoked from PI's own `claude -p` subprocess.
+[[ "${PI_SUBPROCESS:-0}" == "1" ]] && exit 0
+
 PI_ROOT="${CLAUDE_PLUGIN_ROOT:-${PI_ROOT:-${EPISODIC_ROOT:-$HOME/.claude/project-intelligence}}}"
 
 # Backward compat: check both pi-* and episodic-* script names

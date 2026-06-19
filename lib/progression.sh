@@ -742,37 +742,36 @@ Rules:
         return 1
     fi
 
-    episodic_log "INFO" "Reflecting on $project / $topic ($doc_count docs, model=$model)..."
+    # === CLI swap: headless `claude -p` instead of api.anthropic.com ===
+    # Auto path: sonnet. Deep path: opus (EPISODIC_DEEP=1).
+    local cli_model
+    case "$model" in
+        *opus*) cli_model="opus" ;;
+        *haiku*) cli_model="haiku" ;;
+        *sonnet*) cli_model="sonnet" ;;
+        *)
+            if [[ "${EPISODIC_DEEP:-0}" == "1" ]]; then
+                cli_model="opus"
+            else
+                cli_model="sonnet"
+            fi
+            ;;
+    esac
+    episodic_log "INFO" "Reflecting on $project / $topic ($doc_count docs, model=$cli_model via claude -p)..."
 
-    local response
-    response=$(curl -s --max-time 120 \
-        https://api.anthropic.com/v1/messages \
-        -H "x-api-key: $ANTHROPIC_API_KEY" \
-        -H "anthropic-version: 2023-06-01" \
-        -H "content-type: application/json" \
-        -d "$request_json" 2>/dev/null)
+    # Build prompt: system + docs + instruction
+    local full_prompt
+    full_prompt=$(printf '%s\n\nAnalyze this knowledge progression on: "%s"\n\n%s\n\nOutput ONLY the JSON object.' "$system_prompt" "$ptopic" "$all_docs")
 
-    if [[ $? -ne 0 || -z "$response" ]]; then
-        episodic_log "ERROR" "pi_progression_reflect: API call failed"
-        return 1
-    fi
-
-    # Check for API errors
-    local error_type
-    error_type=$(echo "$response" | jq -r '.error.type // empty' 2>/dev/null)
-    if [[ -n "$error_type" ]]; then
-        local error_msg
-        error_msg=$(echo "$response" | jq -r '.error.message // "unknown error"' 2>/dev/null)
-        episodic_log "ERROR" "pi_progression_reflect: API error: $error_type - $error_msg"
-        return 1
-    fi
-
-    # Extract text content (handle thinking responses)
+    # PI_SUBPROCESS=1 prevents PI's own hooks from firing in the subprocess (recursion guard).
     local raw_content
-    raw_content=$(echo "$response" | jq -r '[.content[] | select(.type == "text")] | last | .text // empty' 2>/dev/null)
+    # Absolute path required: in non-interactive subshells the `claude` shell function
+    # is not loaded and ~/.local/bin may not be on PATH. Stderr captured for diagnostics.
+    raw_content=$(printf '%s' "$full_prompt" | timeout 180 env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN PI_SUBPROCESS=1 CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s Claude-Code-OAuth-Token -w 2>/dev/null)" "$HOME/.local/bin/claude" --print --model "$cli_model" 2>>"${EPISODIC_LOG_FILE:-/tmp/pi-progression-stderr.log}")
+    local cli_rc=$?
 
-    if [[ -z "$raw_content" ]]; then
-        episodic_log "ERROR" "pi_progression_reflect: no text in API response"
+    if [[ $cli_rc -ne 0 || -z "$raw_content" ]]; then
+        episodic_log "ERROR" "pi_progression_reflect: claude -p call failed (rc=$cli_rc, model=$cli_model)"
         return 1
     fi
 

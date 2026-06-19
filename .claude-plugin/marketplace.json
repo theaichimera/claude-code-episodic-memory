@@ -1,0 +1,6 @@
+{
+  "name": "pi-marketplace",
+  "owner": {"name": "theaichimera", "url": "https://github.com/theaichimera"},
+  "metadata": {"description": "Project Intelligence: Persistent learning system for Claude Code", "version": "1.0.0"},
+  "plugins": [{"name": "pi", "description": "Episodic memory, skill synthesis, reasoning progressions, behavioral patterns, activity intelligence.", "source": "./"}]
+}

@@ -305,15 +305,20 @@ episodic_index_stats() {
 
     local total
     total=$(episodic_db_exec "SELECT count(*) FROM documents;" "$db")
+    # sqlite3 returns empty string when no rows; jq --argjson rejects empty.
+    [[ -z "$total" ]] && total=0
 
     local by_project
     by_project=$(episodic_db_query_json "SELECT project, count(*) as count FROM documents GROUP BY project;" "$db")
+    [[ -z "$by_project" ]] && by_project="[]"
 
     local by_type
     by_type=$(episodic_db_query_json "SELECT file_type, count(*) as count FROM documents GROUP BY file_type;" "$db")
+    [[ -z "$by_type" ]] && by_type="[]"
 
     local total_size
     total_size=$(episodic_db_exec "SELECT coalesce(sum(file_size), 0) FROM documents;" "$db")
+    [[ -z "$total_size" ]] && total_size=0
 
     jq -n \
         --argjson total "$total" \

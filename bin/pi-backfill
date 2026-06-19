@@ -35,14 +35,19 @@ SKIP_SUMMARY=false
 DRY_RUN=false
 RETRY_SUMMARIES=false
 PROJECT_FILTER=""
+ID_PREFIX=""
+IDS_FILE=""
 LIMIT=0
 DELAY=0.5
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-summary) SKIP_SUMMARY=true; shift ;;
+        --deep) export EPISODIC_DEEP=1; shift ;;
         --retry-summaries) RETRY_SUMMARIES=true; shift ;;
         --project) PROJECT_FILTER="$2"; shift 2 ;;
+        --id-prefix) ID_PREFIX="$2"; shift 2 ;;
+        --ids-file) IDS_FILE="$2"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --limit) LIMIT="$2"; shift 2 ;;
         --delay) DELAY="$2"; shift 2 ;;
@@ -65,12 +70,31 @@ if [[ "$RETRY_SUMMARIES" == "true" ]]; then
     succeeded=0
     still_failed=0
 
-    while IFS='|' read -r sid source_path project; do
+    while IFS='|' read -r sid source_path archive_path project; do
         [[ -n "$sid" ]] || continue
 
         # Apply project filter
         if [[ -n "$PROJECT_FILTER" && "$project" != *"$PROJECT_FILTER"* ]]; then
             continue
+        fi
+
+        # Apply id-prefix filter (for sharding parallel runs): "0-3" matches IDs starting 0/1/2/3
+        if [[ -n "$ID_PREFIX" ]]; then
+            if [[ "$ID_PREFIX" == *-* ]]; then
+                lo="${ID_PREFIX%-*}"; hi="${ID_PREFIX#*-}"
+                first="${sid:0:1}"
+                # Hex char comparison
+                if [[ ! "$first" =~ ^[$lo-$hi]$ ]]; then continue; fi
+            else
+                [[ "$sid" != "$ID_PREFIX"* ]] && continue
+            fi
+        fi
+
+        # Apply ids-file filter (LPT-balanced bins): only process IDs in the file
+        if [[ -n "$IDS_FILE" ]]; then
+            if ! grep -qxF "$sid" "$IDS_FILE" 2>/dev/null; then
+                continue
+            fi
         fi
 
         # Check limit
@@ -87,9 +111,15 @@ if [[ "$RETRY_SUMMARIES" == "true" ]]; then
             continue
         fi
 
+        # Fall back to archive_path if the original bucket file has been deleted
+        # (e.g. after bulk cleanup of ~/.claude/projects/ orphan buckets).
         if [[ ! -f "$source_path" ]]; then
-            echo "SKIP (source file missing)"
-            continue
+            if [[ -n "$archive_path" && -f "$archive_path" ]]; then
+                source_path="$archive_path"
+            else
+                echo "SKIP (source + archive both missing)"
+                continue
+            fi
         fi
 
         # Extract and summarize in a subshell to prevent set -e from killing the loop.
@@ -119,7 +149,7 @@ if [[ "$RETRY_SUMMARIES" == "true" ]]; then
                     echo "FAIL:summary"
                     exit 1
                 fi
-            ' 2>/dev/null
+            ' 2>>"${EPISODIC_BACKFILL_LOG:-/tmp/pi-backfill-stderr.log}"
         ); then
             case "$result" in
                 OK:*)
@@ -137,7 +167,7 @@ if [[ "$RETRY_SUMMARIES" == "true" ]]; then
 
         sleep "$DELAY"
     done < <(episodic_db_exec "
-        SELECT s.id, s.source_path, s.project
+        SELECT s.id, s.source_path, s.archive_path, s.project
         FROM sessions s
         LEFT JOIN summaries sum ON sum.session_id = s.id
         WHERE sum.session_id IS NULL

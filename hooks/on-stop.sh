@@ -4,6 +4,9 @@
 #
 # Supports both plugin mode (CLAUDE_PLUGIN_ROOT) and standalone install.
 
+# Recursion guard: skip when invoked from PI's own `claude -p` subprocess.
+[[ "${PI_SUBPROCESS:-0}" == "1" ]] && exit 0
+
 PI_ROOT="${CLAUDE_PLUGIN_ROOT:-${PI_ROOT:-${EPISODIC_ROOT:-$HOME/.claude/project-intelligence}}}"
 
 # Backward compat: check both pi-* and episodic-* script names
@@ -29,3 +32,6 @@ archive_bin=$(_pi_bin archive)
 if sync_bin=$(_pi_bin knowledge-sync 2>/dev/null); then
     "$sync_bin" push &>/dev/null &
 fi
+
+# CC v2.1.80+ requires valid JSON on stdout
+echo "{}"

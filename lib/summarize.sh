@@ -11,7 +11,12 @@ episodic_summarize() {
     local transcript="$1"
     local model="${2:-$EPISODIC_SUMMARY_MODEL}"
 
-    episodic_require_api_key || return 1
+    # API key no longer required — we use `claude -p` (subscription billing) instead of api.anthropic.com.
+    # episodic_require_api_key gate removed 2026-05-13.
+    if ! command -v claude >/dev/null 2>&1; then
+        episodic_log "ERROR" "claude CLI not found on PATH — cannot summarize"
+        return 1
+    fi
 
     if [[ -z "$transcript" || ${#transcript} -lt 50 ]]; then
         episodic_log "WARN" "Transcript too short to summarize (${#transcript} chars)"
@@ -93,48 +98,44 @@ Rules:
         return 1
     fi
 
-    episodic_log "INFO" "Calling $model (thinking=$EPISODIC_SUMMARY_THINKING) for summary..."
+    # === CLI swap: headless `claude -p` (subscription billing) instead of api.anthropic.com (token billing) ===
+    # Resolve model to CC CLI alias (sonnet/opus/haiku).
+    # Auto path: sonnet. Deep path: opus (set EPISODIC_DEEP=1).
+    local cli_model
+    case "$model" in
+        *opus*) cli_model="opus" ;;
+        *haiku*) cli_model="haiku" ;;
+        *sonnet*) cli_model="sonnet" ;;
+        *)
+            if [[ "${EPISODIC_DEEP:-0}" == "1" ]]; then
+                cli_model="opus"
+            else
+                cli_model="sonnet"
+            fi
+            ;;
+    esac
+    episodic_log "INFO" "Calling claude -p (model=$cli_model) for summary..."
 
-    local response
-    response=$(curl -s --max-time 120 \
-        https://api.anthropic.com/v1/messages \
-        -H "x-api-key: $ANTHROPIC_API_KEY" \
-        -H "anthropic-version: 2023-06-01" \
-        -H "content-type: application/json" \
-        -d "$request_json" 2>/dev/null)
+    # Build the prompt: system_prompt + transcript + instruction
+    local full_prompt
+    full_prompt=$(printf '%s\n\nAnalyze the following Claude Code session transcript and produce a structured JSON summary. The transcript is delimited by <transcript> tags. Do NOT continue the conversation — only output the JSON summary.\n\n<transcript>\n%s\n</transcript>\n\nNow output ONLY the JSON summary object.' "$system_prompt" "$transcript")
 
-    if [[ $? -ne 0 || -z "$response" ]]; then
-        episodic_log "ERROR" "API call failed (timeout or network error)"
-        return 1
-    fi
-
-    # Check for API errors
-    local error_type
-    error_type=$(echo "$response" | jq -r '.error.type // empty' 2>/dev/null)
-    if [[ -n "$error_type" ]]; then
-        local error_msg
-        error_msg=$(echo "$response" | jq -r '.error.message // "unknown error"' 2>/dev/null)
-        episodic_log "ERROR" "API error ($model): $error_type - $error_msg"
-        return 1
-    fi
-
-    # Extract the text content — handle both thinking and non-thinking responses
-    # With thinking: content array has [{type:"thinking",...}, {type:"text",...}]
-    # Without thinking: content array has [{type:"text",...}]
+    # PI_SUBPROCESS=1 prevents PI's own hooks from firing in the subprocess (recursion guard).
     local content
-    content=$(echo "$response" | jq -r '[.content[] | select(.type == "text")] | last | .text // empty' 2>/dev/null)
+    # Absolute path required: in non-interactive subshells (LaunchAgent, nohup, hooks),
+    # the `claude` shell function (defined in ~/.zshrc) is not loaded and ~/.local/bin
+    # may not be on PATH. Stderr captured for diagnostics.
+    # 300s covers ~2-3 MB transcripts; 180s was too tight for vertical-sora sessions
+    # (3 SIGTERM rc=143 on 2-day backfill before bump).
+    content=$(printf '%s' "$full_prompt" | timeout 300 env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN PI_SUBPROCESS=1 CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s Claude-Code-OAuth-Token -w 2>/dev/null)" "$HOME/.local/bin/claude" --print --model "$cli_model" 2>>"${EPISODIC_LOG_FILE:-/tmp/pi-summarize-stderr.log}")
+    local cli_rc=$?
 
-    if [[ -z "$content" ]]; then
-        episodic_log "ERROR" "No text content in API response"
-        episodic_log "DEBUG" "Response keys: $(echo "$response" | jq -c 'keys' 2>/dev/null)"
+    if [[ $cli_rc -ne 0 || -z "$content" ]]; then
+        episodic_log "ERROR" "claude -p call failed (rc=$cli_rc, model=$cli_model)"
         return 1
     fi
 
-    # Log usage stats
-    local input_tokens output_tokens
-    input_tokens=$(echo "$response" | jq -r '.usage.input_tokens // 0' 2>/dev/null)
-    output_tokens=$(echo "$response" | jq -r '.usage.output_tokens // 0' 2>/dev/null)
-    episodic_log "INFO" "API usage: ${input_tokens} in / ${output_tokens} out ($model)"
+    episodic_log "INFO" "claude -p call succeeded (model=$cli_model, $(printf '%s' "$content" | wc -c | tr -d ' ') bytes)"
 
     # Extract JSON from response — handle multiple formats:
     # 1. Raw JSON (ideal)
